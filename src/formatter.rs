@@ -1,3 +1,7 @@
+//! Produce the strings that are sent as bot messages.
+//! The formatting consists in using basic markdown formatting, emojis
+//! and composing the actual output string.
+
 use std::iter::repeat;
 use teloxide::utils::markdown::{bold, escape};
 
