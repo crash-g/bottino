@@ -10,50 +10,23 @@ use tokio::task::block_in_place;
 use super::Memory;
 use crate::types::{Expense, ExpenseWithId, Participant};
 
-pub struct SqlLiteMemory {
+mod schema;
+
+pub struct SqliteMemory {
     connection: Connection,
 }
 
-impl SqlLiteMemory {
-    pub fn new() -> anyhow::Result<SqlLiteMemory> {
+impl SqliteMemory {
+    pub fn new() -> anyhow::Result<SqliteMemory> {
         block_in_place(|| {
             let connection = Connection::open("treasurer.db")?;
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS expense (
-                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                 chat_id INTEGER NOT NULL,
-                 amount INTEGER NOT NULL,
-                 message TEXT,
-                 message_ts DATETIME NOT NULL,
-                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                 settled_at DATETIME,
-                 deleted_at DATETIME
-               )",
-                (),
-            )?;
-            connection.execute(
-                "CREATE TABLE IF NOT EXISTS participant (
-                 name TEXT NOT NULL,
-                 is_creditor BOOL NOT NULL,
-                 expense_id INTEGER NOT NULL,
-                 amount INTEGER
-             )",
-                (),
-            )?;
-            Ok(SqlLiteMemory { connection })
-        })
-    }
-
-    pub fn connection() -> anyhow::Result<SqlLiteMemory> {
-        block_in_place(|| {
-            Ok(SqlLiteMemory {
-                connection: Connection::open("treasurer.db")?,
-            })
+            schema::create_all_tables(&connection)?;
+            Ok(SqliteMemory { connection })
         })
     }
 }
 
-impl Memory for SqlLiteMemory {
+impl Memory for SqliteMemory {
     fn save_expense_with_message(
         &mut self,
         chat_id: i64,

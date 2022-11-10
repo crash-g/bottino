@@ -14,29 +14,25 @@ mod types;
 mod validator;
 
 use crate::bot_commands::{dialogue_handler, State};
-use crate::memory::sqlite::SqlLiteMemory;
+use crate::memory::sqlite::SqliteMemory;
 
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init_timed();
 
     info!("Initiliazing database...");
-    SqlLiteMemory::new()
+    let memory = SqliteMemory::new()
         .map_err(|e| error!("Cannot initialize database: {}", e))
         .expect("Cannot initialize database");
 
-    info!("Creating database connection...");
-    let connection = SqlLiteMemory::connection()
-        .map_err(|e| error!("Cannot create database connection: {}", e))
-        .expect("Cannot create database connection");
-    let connection = Arc::new(Mutex::new(connection));
+    let memory = Arc::new(Mutex::new(memory));
 
     info!("Starting command bot...");
 
     let bot = Bot::from_env();
 
     Dispatcher::builder(bot, dialogue_handler())
-        .dependencies(dptree::deps![InMemStorage::<State>::new(), connection])
+        .dependencies(dptree::deps![InMemStorage::<State>::new(), memory])
         .enable_ctrlc_handler()
         .build()
         .dispatch()
