@@ -13,10 +13,45 @@ pub type Amount = i64;
 
 /// An expense as created by the user.
 #[derive(Clone, Debug)]
-pub struct Expense {
-    pub participants: Vec<Participant>,
+pub struct ParsedExpense {
+    pub participants: Vec<ParsedParticipant>,
     pub amount: Amount,
     pub message: Option<String>,
+}
+
+/// A participant to an expense as defined by the user.
+///
+/// The `amount` is an optional custom amount for the
+/// participant. If the participant is a debtor, it corresponds to the money that the
+/// participant owes to someone. If the participant is a creditor, it corresponds
+/// to the amount of money that someone owes to the participant.
+#[derive(Clone, Debug)]
+pub struct ParsedParticipant {
+    pub name: String,
+    pub mode: ParticipantMode,
+    pub amount: Option<Amount>,
+}
+
+/// An expense that is read from memory.
+#[derive(Clone, Debug)]
+pub struct SavedExpense {
+    pub id: i64,
+    pub participants: Vec<SavedParticipant>,
+    pub amount: Amount,
+    pub message: Option<String>,
+}
+
+/// A participant to an expense that is read from memory.
+///
+/// The `amount` is an optional custom amount for the
+/// participant. If the participant is a debtor, it corresponds to the money that the
+/// participant owes to someone. If the participant is a creditor, it corresponds
+/// to the amount of money that someone owes to the participant.
+#[derive(Clone, Debug)]
+pub struct SavedParticipant {
+    pub name: String,
+    pub mode: ParticipantMode,
+    pub amount: Option<Amount>,
 }
 
 /// A debtor, a creditor and the amount of money that the debtor owes to the creditor.
@@ -27,16 +62,6 @@ pub struct MoneyExchange {
     pub amount: Amount,
 }
 
-/// Same as [`Expense`], but with the `id`. This is used for expenses that are
-/// read from memory.
-#[derive(Clone, Debug)]
-pub struct ExpenseWithId {
-    pub id: i64,
-    pub participants: Vec<Participant>,
-    pub amount: Amount,
-    pub message: Option<String>,
-}
-
 /// Whether a participant to an expense is a creditor or a debtor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParticipantMode {
@@ -44,20 +69,9 @@ pub enum ParticipantMode {
     Debtor,
 }
 
-/// A participant to an expense. The `amount` is an optional custom amount for the
-/// participant. If the participant is a debtor, it corresponds to the money that the
-/// participant owes to someone. If the participant is a creditor, it corresponds
-/// to the amount of money that someone owes to the participant.
-#[derive(Clone, Debug)]
-pub struct Participant {
-    pub name: String,
-    pub mode: ParticipantMode,
-    pub amount: Option<Amount>,
-}
-
-impl Expense {
-    pub fn new(participants: Vec<Participant>, amount: Amount, message: Option<String>) -> Expense {
-        Expense {
+impl ParsedExpense {
+    pub fn new(participants: Vec<ParsedParticipant>, amount: Amount, message: Option<String>) -> ParsedExpense {
+        ParsedExpense {
             participants,
             amount,
             message,
@@ -75,14 +89,14 @@ impl MoneyExchange {
     }
 }
 
-impl ExpenseWithId {
+impl SavedExpense {
     pub fn new(
         id: i64,
-        participants: Vec<Participant>,
+        participants: Vec<SavedParticipant>,
         amount: Amount,
         message: Option<String>,
-    ) -> ExpenseWithId {
-        ExpenseWithId {
+    ) -> SavedExpense {
+        SavedExpense {
             id,
             participants,
             amount,
@@ -91,17 +105,39 @@ impl ExpenseWithId {
     }
 }
 
-impl Participant {
-    pub fn new(name: String, mode: ParticipantMode, amount: Option<Amount>) -> Participant {
-        Participant { name, mode, amount }
+impl ParsedParticipant {
+    pub fn new(name: String, mode: ParticipantMode, amount: Option<Amount>) -> Self {
+        Self { name, mode, amount }
     }
 
-    pub fn new_creditor(name: &str, amount: Option<Amount>) -> Participant {
-        Participant::new(name.to_string(), ParticipantMode::Creditor, amount)
+    pub fn new_creditor(name: &str, amount: Option<Amount>) -> Self {
+        Self::new(name.to_string(), ParticipantMode::Creditor, amount)
     }
 
-    pub fn new_debtor(name: &str, amount: Option<Amount>) -> Participant {
-        Participant::new(name.to_string(), ParticipantMode::Debtor, amount)
+    pub fn new_debtor(name: &str, amount: Option<Amount>) -> Self {
+        Self::new(name.to_string(), ParticipantMode::Debtor, amount)
+    }
+
+    pub fn is_creditor(&self) -> bool {
+        self.mode == ParticipantMode::Creditor
+    }
+
+    pub fn is_debtor(&self) -> bool {
+        self.mode == ParticipantMode::Debtor
+    }
+}
+
+impl SavedParticipant {
+    pub fn new(name: String, mode: ParticipantMode, amount: Option<Amount>) -> Self {
+        Self { name, mode, amount }
+    }
+
+    pub fn new_creditor(name: &str, amount: Option<Amount>) -> Self {
+        Self::new(name.to_string(), ParticipantMode::Creditor, amount)
+    }
+
+    pub fn new_debtor(name: &str, amount: Option<Amount>) -> Self {
+        Self::new(name.to_string(), ParticipantMode::Debtor, amount)
     }
 
     pub fn is_creditor(&self) -> bool {

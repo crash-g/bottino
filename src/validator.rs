@@ -6,10 +6,10 @@
 use std::collections::HashSet;
 use std::hash::Hash;
 
-use crate::types::Expense;
+use crate::types::ParsedExpense;
 
 /// Some sanity checks on the expense that was submitted.
-pub fn validate_expense(expense: &Expense) -> anyhow::Result<()> {
+pub fn validate_expense(expense: &ParsedExpense) -> anyhow::Result<()> {
     let amount = expense.amount;
 
     let no_participants = expense.participants.is_empty();
@@ -108,13 +108,13 @@ where
 
 #[cfg(test)]
 mod tests {
-    use crate::types::Participant;
+    use crate::types::ParsedParticipant;
 
     use super::*;
 
     #[test]
     fn test_no_participants() {
-        let expense = Expense {
+        let expense = ParsedExpense {
             participants: vec![],
             amount: 33,
             message: None,
@@ -125,27 +125,27 @@ mod tests {
     #[test]
     fn test_duplicates() {
         let participants = vec![
-            Participant::new_creditor("a", None),
-            Participant::new_creditor("b", None),
-            Participant::new_creditor("a", None),
+            ParsedParticipant::new_creditor("a", None),
+            ParsedParticipant::new_creditor("b", None),
+            ParsedParticipant::new_creditor("a", None),
         ];
-        let expense = Expense::new(participants, 33, None);
+        let expense = ParsedExpense::new(participants, 33, None);
         assert!(validate_expense(&expense).is_err());
 
         let participants = vec![
-            Participant::new_debtor("a", None),
-            Participant::new_debtor("b", None),
-            Participant::new_debtor("a", None),
+            ParsedParticipant::new_debtor("a", None),
+            ParsedParticipant::new_debtor("b", None),
+            ParsedParticipant::new_debtor("a", None),
         ];
-        let expense = Expense::new(participants, 33, None);
+        let expense = ParsedExpense::new(participants, 33, None);
         assert!(validate_expense(&expense).is_err());
 
         let participants = vec![
-            Participant::new_debtor("a", None),
-            Participant::new_debtor("b", None),
-            Participant::new_creditor("a", None),
+            ParsedParticipant::new_debtor("a", None),
+            ParsedParticipant::new_debtor("b", None),
+            ParsedParticipant::new_creditor("a", None),
         ];
-        let expense = Expense::new(participants, 33, None);
+        let expense = ParsedExpense::new(participants, 33, None);
         assert!(validate_expense(&expense).is_ok());
     }
 }

@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use log::Level::Debug;
 use log::{debug, log_enabled, warn};
 
-use crate::types::{ExpenseWithId, MoneyExchange};
+use crate::types::{SavedExpense, MoneyExchange};
 
 /// Get a list of money exchanges which settle debts computed from the list
 /// of expenses in input.
@@ -28,7 +28,7 @@ use crate::types::{ExpenseWithId, MoneyExchange};
 ///
 /// Another approximation is that we use floating-point math: this may cause rounding
 /// errors, but in general we tolerate errors up to one cent.
-pub fn compute_exchanges(expenses: Vec<ExpenseWithId>) -> Vec<MoneyExchange> {
+pub fn compute_exchanges(expenses: Vec<SavedExpense>) -> Vec<MoneyExchange> {
     let debts_and_credits = compute_debts_and_credits(expenses);
     let mut debtors: Vec<_> = debts_and_credits
         .iter()
@@ -87,7 +87,7 @@ fn are_amount_equal(d: i64, c: i64) -> bool {
     (d + c).abs() < 1
 }
 
-fn compute_debts_and_credits(mut expenses: Vec<ExpenseWithId>) -> HashMap<String, i64> {
+fn compute_debts_and_credits(mut expenses: Vec<SavedExpense>) -> HashMap<String, i64> {
     let mut balance = HashMap::new();
     make_names_lowercase(&mut expenses);
 
@@ -102,7 +102,7 @@ fn compute_debts_and_credits(mut expenses: Vec<ExpenseWithId>) -> HashMap<String
 /// We save participants using the original string that users gave in input.
 /// However, participant names are case-insensitive, so when computing
 /// the actual balance we turn them into lower case.
-fn make_names_lowercase(expenses: &mut Vec<ExpenseWithId>) {
+fn make_names_lowercase(expenses: &mut Vec<SavedExpense>) {
     for e in expenses {
         for p in &mut e.participants {
             p.name = p.name.to_lowercase();
@@ -110,7 +110,7 @@ fn make_names_lowercase(expenses: &mut Vec<ExpenseWithId>) {
     }
 }
 
-fn compute_debts(expense: &ExpenseWithId, balance: &mut HashMap<String, i64>) {
+fn compute_debts(expense: &SavedExpense, balance: &mut HashMap<String, i64>) {
     let mut total_amount = expense.amount;
 
     let fixed_debtors: Vec<_> = expense
@@ -145,7 +145,7 @@ fn compute_debts(expense: &ExpenseWithId, balance: &mut HashMap<String, i64>) {
     }
 }
 
-fn compute_credits(expense: &ExpenseWithId, balance: &mut HashMap<String, i64>) {
+fn compute_credits(expense: &SavedExpense, balance: &mut HashMap<String, i64>) {
     let mut total_amount = expense.amount;
 
     let fixed_creditors: Vec<_> = expense
@@ -175,30 +175,30 @@ fn compute_credits(expense: &ExpenseWithId, balance: &mut HashMap<String, i64>) 
 
 #[cfg(test)]
 mod tests {
-    use crate::types::Participant;
+    use crate::types::SavedParticipant;
 
     use super::*;
 
     #[test]
     fn test_compute_credits_and_debts() {
         let expenses = vec![
-            ExpenseWithId::new(
+            SavedExpense::new(
                 1,
                 vec![
-                    Participant::new_creditor("name1", None),
-                    Participant::new_debtor("name2", None),
-                    Participant::new_debtor("name3", Some(1040)),
+                    SavedParticipant::new_creditor("name1", None),
+                    SavedParticipant::new_debtor("name2", None),
+                    SavedParticipant::new_debtor("name3", Some(1040)),
                 ],
                 2340,
                 None,
             ),
             // Also use some uppercase in names, to check that we turn them to lowercase:
-            ExpenseWithId::new(
+            SavedExpense::new(
                 2,
                 vec![
-                    Participant::new_creditor("NAme2", None),
-                    Participant::new_debtor("NAME1", None),
-                    Participant::new_debtor("naME3", None),
+                    SavedParticipant::new_creditor("NAme2", None),
+                    SavedParticipant::new_debtor("NAME1", None),
+                    SavedParticipant::new_debtor("naME3", None),
                 ],
                 3300,
                 None,
@@ -215,22 +215,22 @@ mod tests {
     #[test]
     fn test_compute_exchanges() {
         let expenses = vec![
-            ExpenseWithId::new(
+            SavedExpense::new(
                 1,
                 vec![
-                    Participant::new_creditor("name1", None),
-                    Participant::new_debtor("name2", None),
-                    Participant::new_debtor("name3", Some(1040)),
+                    SavedParticipant::new_creditor("name1", None),
+                    SavedParticipant::new_debtor("name2", None),
+                    SavedParticipant::new_debtor("name3", Some(1040)),
                 ],
                 2340,
                 None,
             ),
-            ExpenseWithId::new(
+            SavedExpense::new(
                 2,
                 vec![
-                    Participant::new_creditor("name2", None),
-                    Participant::new_debtor("name1", None),
-                    Participant::new_debtor("name3", None),
+                    SavedParticipant::new_creditor("name2", None),
+                    SavedParticipant::new_debtor("name1", None),
+                    SavedParticipant::new_debtor("name3", None),
                 ],
                 3300,
                 None,
