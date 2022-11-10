@@ -29,6 +29,7 @@ where it is started.
 The group name must be preceded by `#`.
 
 - /addgroup group_name p1 p2 p3
+- /removegroup group_name
 - /addgroupmembers group_name p1 p2 p3
 - /removegroupmembers group_name p1 p2 p3
 - /listgroups

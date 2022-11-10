@@ -3,7 +3,7 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use log::{debug, info};
-use rusqlite::{params, Connection, Params, Statement};
+use rusqlite::{params, Connection, Params, CachedStatement};
 use std::collections::HashMap;
 use tokio::task::block_in_place;
 
@@ -37,19 +37,32 @@ impl Memory for SqliteMemory {
         block_in_place(|| {
             let tx = self.connection.transaction()?;
 
-            let expense_id: i64 = tx.query_row(
-                "INSERT INTO expense (chat_id, amount, message, message_ts) values (?1, ?2, ?3, ?4) RETURNING id",
-                params![&chat_id, &expense.amount, &expense.message, &message_ts],
-                |row| row.get(0),
-            )?;
+            let expense_id: i64 = {
+                let mut insert_expense_stmt = tx.prepare_cached(
+                    "INSERT INTO expense (chat_id, amount, message, message_ts) VALUES (?1, ?2, ?3, ?4) RETURNING id"
+                )?;
+
+                insert_expense_stmt.query_row(
+                    params![&chat_id, &expense.amount, &expense.message, &message_ts],
+                    |row| row.get(0),
+                )?
+            };
 
             debug!("expense_id is {expense_id}");
 
-            for participant in expense.participants {
-                tx.execute(
-                    "INSERT INTO participant (name, is_creditor, expense_id, amount) values (?1, ?2, ?3, ?4)",
-                    params![&participant.name, &participant.is_creditor(), &expense_id, &participant.amount],
+            {
+                let mut insert_participant_stmt = tx.prepare_cached(
+                    "INSERT INTO participant (name, is_creditor, expense_id, amount) VALUES (?1, ?2, ?3, ?4)"
                 )?;
+
+                for participant in expense.participants {
+                    insert_participant_stmt.execute(params![
+                        &participant.name,
+                        &participant.is_creditor(),
+                        &expense_id,
+                        &participant.amount
+                    ])?;
+                }
             }
 
             tx.commit()?;
@@ -62,7 +75,7 @@ impl Memory for SqliteMemory {
         block_in_place(|| {
             let stmt = self
                 .connection
-                .prepare(
+                .prepare_cached(
                     "SELECT e.id, e.amount, e.message, p.name, p.is_creditor, p.amount FROM expense e
                  INNER JOIN participant p ON e.id = p.expense_id
                  WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL",
@@ -84,7 +97,7 @@ impl Memory for SqliteMemory {
         block_in_place(|| {
             let stmt = self
                 .connection
-                .prepare(
+                .prepare_cached(
                     "SELECT e.id, e.amount, e.message, p.name, p.is_creditor, p.amount FROM expense e
                  INNER JOIN participant p ON e.id = p.expense_id
                  WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL
@@ -100,33 +113,106 @@ impl Memory for SqliteMemory {
 
     fn mark_all_as_settled(&self, chat_id: i64) -> anyhow::Result<()> {
         debug!("Marking all as settled using current timestamp. Chat ID: {chat_id}");
-        self.connection
-            .execute(
-                "UPDATE expense SET settled_at = CURRENT_TIMESTAMP
+        block_in_place(|| {
+            self.connection
+                .execute(
+                    "UPDATE expense SET settled_at = CURRENT_TIMESTAMP
              WHERE chat_id = ?1 AND settled_at IS NULL AND deleted_at IS NULL",
-                params![&chat_id],
-            )
-            .with_context(|| "Query to set all settled failed")?;
+                    params![&chat_id],
+                )
+                .with_context(|| "Query to set all settled failed")?;
 
-        Ok(())
+            Ok(())
+        })
     }
 
     fn delete_expense(&self, chat_id: i64, expense_id: i64) -> anyhow::Result<()> {
         info!("Deleting expense. Chat ID: {chat_id}. Expense ID: {expense_id}");
-        self.connection
-            .execute(
-                "UPDATE expense SET deleted_at = CURRENT_TIMESTAMP
+        block_in_place(|| {
+            self.connection
+                .execute(
+                    "UPDATE expense SET deleted_at = CURRENT_TIMESTAMP
                  WHERE chat_id = ?1 AND id = ?2 AND settled_at IS NULL AND deleted_at IS NULL",
-                params![&chat_id, &expense_id],
-            )
-            .with_context(|| "Query to delete expense failed")?;
+                    params![&chat_id, &expense_id],
+                )
+                .with_context(|| "Query to delete expense failed")?;
 
-        Ok(())
+            Ok(())
+        })
+    }
+
+    fn create_group(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()> {
+        block_in_place(|| {
+            let tx = self.connection.transaction()?;
+            let num_groups: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM participant_group WHERE chat_id = :chat_id AND name = :name",
+                params![&chat_id, &group_name],
+                |row| row.get(0),
+            )?;
+            if num_groups == 0 {
+                tx.execute(
+                    "INSERT INTO participant_group (chat_id, name) VALUES (?1, ?2)",
+                    params![&chat_id, &group_name],
+                )?;
+            }
+
+            tx.commit()?;
+
+            Ok(())
+        })
+    }
+
+    fn remove_group(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()> {
+        info!("Deleting group. Chat ID: {chat_id}. Group name: {group_name}");
+        block_in_place(|| {
+            let tx = self.connection.transaction()?;
+
+            let group_id: i64 = tx.query_row(
+                "DELETE FROM participant_group WHERE chat_id = ?1 AND name = ?2 RETURNING id",
+                params![&chat_id, &group_name],
+                |row| row.get(0),
+            )?;
+
+            tx.execute(
+                "DELETE FROM group_member WHERE group_id = :group_id",
+                params![&group_id],
+            )?;
+
+            tx.commit()?;
+
+            Ok(())
+        })
+    }
+
+    fn add_group_members(
+        &self,
+        chat_id: i64,
+        group_name: &str,
+        members: &[&str],
+    ) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    fn remove_group_members(
+        &self,
+        chat_id: i64,
+        group_name: &str,
+        members: &[&str],
+    ) -> anyhow::Result<()> {
+        todo!()
+    }
+
+    fn get_groups(&self, chat_id: i64) -> anyhow::Result<Vec<String>> {
+        todo!()
+    }
+
+    fn get_group_members(&self, chat_id: i64, group_name: &str) -> anyhow::Result<Vec<String>> {
+        todo!()
     }
 }
 
 fn query_active_expenses(
-    mut statement: Statement,
+    mut statement: CachedStatement,
     params: impl Params,
 ) -> anyhow::Result<Vec<SavedExpense>> {
     let expense_iter = statement

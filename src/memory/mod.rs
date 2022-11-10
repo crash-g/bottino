@@ -47,4 +47,21 @@ pub trait Memory {
     /// The actual implementation could delete the expense or just mark it as deleted. The
     /// only requirement is that it does not show as active later on.
     fn delete_expense(&self, chat_id: i64, expense_id: i64) -> anyhow::Result<()>;
+
+    fn create_group(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()>;
+    fn remove_group(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()>;
+    fn add_group_members(
+        &self,
+        chat_id: i64,
+        group_name: &str,
+        members: &[&str],
+    ) -> anyhow::Result<()>;
+    fn remove_group_members(
+        &self,
+        chat_id: i64,
+        group_name: &str,
+        members: &[&str],
+    ) -> anyhow::Result<()>;
+    fn get_groups(&self, chat_id: i64) -> anyhow::Result<Vec<String>>;
+    fn get_group_members(&self, chat_id: i64, group_name: &str) -> anyhow::Result<Vec<String>>;
 }

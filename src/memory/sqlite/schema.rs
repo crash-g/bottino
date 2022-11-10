@@ -16,9 +16,10 @@ const CREATE_PARTICIPANT_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS parti
   amount INTEGER
 )";
 
-const CREATE_GROUP_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS group (
+const CREATE_GROUP_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS participant_group (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL
+  chat_id INTEGER NOT NULL,
+  name TEXT NOT NULL UNIQUE
 )";
 
 const CREATE_GROUP_MEMBER_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS group_member (
