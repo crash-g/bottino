@@ -5,7 +5,7 @@
 use std::iter::repeat;
 use teloxide::utils::markdown::{bold, escape};
 
-use crate::types::{Amount, MoneyExchange, ParticipantMode, SavedExpense, SavedParticipant};
+use crate::types::{Amount, MoneyExchange, SavedExpense, SavedParticipant};
 
 const AMOUNT_TO_FLOAT_DIVISOR: f64 = 100.0;
 
@@ -43,15 +43,10 @@ fn format_amount(amount: Amount) -> String {
 }
 
 fn format_participants(expense: &SavedExpense, are_creditors: bool) -> String {
-    let mode = if are_creditors {
-        ParticipantMode::Creditor
-    } else {
-        ParticipantMode::Debtor
-    };
     expense
         .participants
         .iter()
-        .filter(|p| p.mode == mode)
+        .filter(|p| p.is_creditor() == are_creditors)
         .map(|p| escape(&format_participant(p)))
         .fold(String::new(), |a, b| a + &b + " ")
 }
