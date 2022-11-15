@@ -15,6 +15,7 @@ anyhow = "1.0.65"
 nom = "7.1.1"
 rusqlite = {version = "0.28.0", features = ["bundled", "chrono"]}
 openssl = { version = "0.10", features = ["vendored"] }
+thiserror = "1.0.37"
 
 [profile.release]
 lto = true

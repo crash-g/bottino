@@ -30,7 +30,13 @@ fn format_expense(expense: &SavedExpense) -> String {
     );
 
     if expense.message.is_some() {
-        let message = escape(&format!("- {}", expense.message.clone().unwrap()));
+        let message = escape(&format!(
+            "- {}",
+            expense
+                .message
+                .clone()
+                .expect("just checked the option is non-empty!")
+        ));
         format!("{} {}", result, message)
     } else {
         result
@@ -53,7 +59,10 @@ fn format_participants(expense: &SavedExpense, are_creditors: bool) -> String {
 
 fn format_participant(participant: &SavedParticipant) -> String {
     if participant.amount.is_some() {
-        let amount = participant.amount.unwrap() as f64 / AMOUNT_TO_FLOAT_DIVISOR;
+        let amount = participant
+            .amount
+            .expect("just checked the amount is non-empty!") as f64
+            / AMOUNT_TO_FLOAT_DIVISOR;
         format!("{}/{:.2}", participant.name, amount)
     } else {
         participant.name.to_string()
@@ -64,7 +73,11 @@ pub fn format_balance(exchanges: &Vec<MoneyExchange>) -> String {
     if exchanges.is_empty() {
         escape("All clean!")
     } else {
-        let max_debtor_length = exchanges.iter().map(|e| e.debtor.len()).max().unwrap();
+        let max_debtor_length = exchanges
+            .iter()
+            .map(|e| e.debtor.len())
+            .max()
+            .expect("just checked there are exchanges!");
         exchanges
             .iter()
             .map(|e| format_exchange(e, max_debtor_length))

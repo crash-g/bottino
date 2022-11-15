@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context};
 use log::debug;
 use teloxide::{
     dispatching::{
@@ -15,12 +14,12 @@ use teloxide::{
 };
 use tokio::sync::Mutex;
 
-use crate::bot_logic::compute_exchanges;
 use crate::formatter::{format_balance, format_list_expenses};
 use crate::memory::sqlite::SqliteMemory;
 use crate::memory::Memory;
 use crate::parser::parse_expense;
 use crate::validator::validate_expense;
+use crate::{bot_logic::compute_exchanges, error::BotError};
 
 #[derive(Clone, Default)]
 pub enum State {
@@ -79,7 +78,13 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                 };
 
                 if result.is_err() {
-                    bot.send_message(msg.chat.id, "An error occurred!").await?;
+                    let e = result
+                        .as_ref()
+                        .err()
+                        .expect("just checked this is an error!");
+                    bot.send_message(msg.chat.id, format!("{e}"))
+                        .await
+                        .map_err(|e| BotError::telegram("cannot send error message", e))?;
                 }
 
                 // teloxide default error handler will take care of logging the result if it is an error.
@@ -94,7 +99,8 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
 
 async fn handle_help(bot: &Bot, msg: &Message) -> HandlerResult {
     bot.send_message(msg.chat.id, Command::descriptions().to_string())
-        .await?;
+        .await
+        .map_err(|e| BotError::telegram("cannot send help", e))?;
     Ok(())
 }
 
@@ -106,20 +112,16 @@ async fn handle_expense<M: Memory>(
     let chat_id = msg.chat.id.0;
     let message_ts = msg.date;
 
-    let expense = parse_expense(message).map_err(|e| {
-        anyhow!(
-            "Cannot parse input message '{}'. Error: {}",
-            message.to_string(),
-            e.to_string()
-        )
-    })?;
+    let expense = parse_expense(message)
+        .map_err(|e| BotError::parse(&format!("cannot parse input message '{}'", message,), e))?;
     let expense = expense.1;
     validate_expense(&expense)?;
 
     memory
         .lock()
         .await
-        .save_expense_with_message(chat_id, expense, message_ts)?;
+        .save_expense_with_message(chat_id, expense, message_ts)
+        .map_err(|e| BotError::database("cannot save expense", e))?;
 
     Ok(())
 }
@@ -135,13 +137,14 @@ async fn handle_balance<M: Memory>(
         .lock()
         .await
         .get_active_expenses(chat_id)
-        .with_context(|| "Could not get active expenses")?;
+        .map_err(|e| BotError::database("cannot get active expenses", e))?;
     let exchanges = compute_exchanges(active_expenses);
     let formatted_balance = format_balance(&exchanges);
 
     bot.send_message(msg.chat.id, formatted_balance)
         .parse_mode(ParseMode::MarkdownV2)
-        .await?;
+        .await
+        .map_err(|e| BotError::telegram("cannot send balance", e))?;
     Ok(())
 }
 
@@ -152,7 +155,7 @@ async fn handle_reset<M: Memory>(msg: &Message, memory: &Arc<Mutex<M>>) -> Handl
         .lock()
         .await
         .mark_all_as_settled(chat_id)
-        .with_context(|| "Could not mark all as settled")?;
+        .map_err(|e| BotError::database("cannot mark all as settled", e))?;
     Ok(())
 }
 
@@ -163,7 +166,16 @@ async fn handle_list<M: Memory>(
     limit: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let limit = if limit.is_empty() { 1 } else { limit.parse()? };
+    let limit = if limit.is_empty() {
+        1
+    } else {
+        limit.parse().map_err(|e| {
+            BotError::new(
+                format!("cannot parse limit '{}': {}", limit, e),
+                "cannot parse integer".to_string(),
+            )
+        })?
+    };
     debug!("Producing the list of expenses with limit {}", limit);
 
     // Considering how we run the query, it is not easy to use a LIMIT, so
@@ -172,15 +184,20 @@ async fn handle_list<M: Memory>(
         .lock()
         .await
         .get_active_expenses(chat_id)
-        .with_context(|| "Could not get active expenses")?;
+        .map_err(|e| BotError::database("cannot get active expenses", e))?;
 
-    active_expenses.sort_by(|e1, e2| e2.id.partial_cmp(&e1.id).unwrap());
+    active_expenses.sort_by(|e1, e2| {
+        e2.id
+            .partial_cmp(&e1.id)
+            .expect("cannot sort active expenses")
+    });
     let limit = std::cmp::min(limit, active_expenses.len());
     let result = format_list_expenses(&active_expenses[0..limit]);
 
     bot.send_message(msg.chat.id, result)
         .parse_mode(ParseMode::MarkdownV2)
-        .await?;
+        .await
+        .map_err(|e| BotError::telegram("cannot send expense list", e))?;
 
     Ok(())
 }
@@ -191,8 +208,17 @@ async fn handle_delete<M: Memory>(
     expense_id: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let expense_id = expense_id.parse()?;
+    let expense_id = expense_id.parse().map_err(|e| {
+        BotError::new(
+            format!("cannot parse expense ID '{}': {}", expense_id, e),
+            "cannot parse integer".to_string(),
+        )
+    })?;
 
-    memory.lock().await.delete_expense(chat_id, expense_id)?;
+    memory
+        .lock()
+        .await
+        .delete_expense(chat_id, expense_id)
+        .map_err(|e| BotError::database("cannot delete expense", e))?;
     Ok(())
 }

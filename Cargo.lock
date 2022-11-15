@@ -1491,6 +1491,7 @@ dependencies = [
  "pretty_env_logger",
  "rusqlite",
  "teloxide",
+ "thiserror",
  "tokio",
 ]
 
