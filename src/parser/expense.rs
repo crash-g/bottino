@@ -1,4 +1,6 @@
-//! Parse the user input.
+//! Parse an expense.
+//!
+//! Since expenses have a more or less complex syntax, we use nom.
 
 use std::{cmp::Ordering, iter::repeat, num::ParseIntError};
 

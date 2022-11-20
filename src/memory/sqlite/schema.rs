@@ -19,12 +19,14 @@ const CREATE_PARTICIPANT_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS parti
 const CREATE_GROUP_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS participant_group (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   chat_id INTEGER NOT NULL,
-  name TEXT NOT NULL UNIQUE
+  name TEXT NOT NULL UNIQUE,
+  UNIQUE(chat_id, name)
 )";
 
 const CREATE_GROUP_MEMBER_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS group_member (
   name TEXT NOT NULL,
-  group_id INTEGER NOT NULL
+  group_id INTEGER NOT NULL,
+  UNIQUE(name, group_id)
 )";
 
 pub fn create_all_tables(connection: &rusqlite::Connection) -> anyhow::Result<()> {

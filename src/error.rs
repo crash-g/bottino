@@ -17,7 +17,7 @@ impl BotError {
     }
 
     // TODO: it should be possible to improve nom error messages.
-    pub fn parse(message: &str, e: nom::Err<nom::error::Error<&str>>) -> Self {
+    pub fn nom_parse(message: &str, e: nom::Err<nom::error::Error<&str>>) -> Self {
         let message = format!("{message}: {e}");
         let user_message = "cannot parse message".to_string();
         BotError {
