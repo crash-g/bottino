@@ -16,7 +16,7 @@ use tokio::sync::Mutex;
 
 use crate::memory::Memory;
 use crate::parser::parse_expense;
-use crate::validator::validate_expense;
+use crate::validator::{validate_and_resolve_groups, validate_expense};
 use crate::{bot_logic::compute_exchanges, error::BotError};
 use crate::{formatter::format_simple_list, memory::sqlite::SqliteMemory};
 use crate::{
@@ -115,10 +115,7 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                 };
 
                 if result.is_err() {
-                    let e = result
-                        .as_ref()
-                        .err()
-                        .expect("just checked this is an error!");
+                    let e = result.as_ref().expect_err("just checked this is an error!");
                     bot.send_message(msg.chat.id, format!("{e}"))
                         .await
                         .map_err(|e| BotError::telegram("cannot send error message", e))?;
@@ -153,6 +150,7 @@ async fn handle_expense<M: Memory>(
         BotError::nom_parse(&format!("cannot parse input message '{}'", message,), e)
     })?;
     let expense = expense.1;
+    let expense = validate_and_resolve_groups(expense, chat_id, memory).await?;
     validate_expense(&expense)?;
 
     memory
@@ -298,14 +296,14 @@ async fn handle_delete_group<M: Memory>(
     let group_exists = memory
         .lock()
         .await
-        .group_exists(chat_id, &group_name)
+        .group_exists(chat_id, group_name)
         .map_err(|e| BotError::database("cannot check if group exists", e))?;
 
     if group_exists {
         memory
             .lock()
             .await
-            .delete_group_if_exists(chat_id, &group_name)
+            .delete_group_if_exists(chat_id, group_name)
             .map_err(|e| BotError::database("cannot delete group", e))?;
     } else {
         bot.send_message(
@@ -418,14 +416,14 @@ async fn handle_list_group_members<M: Memory>(
     let group_exists = memory
         .lock()
         .await
-        .group_exists(chat_id, &group_name)
+        .group_exists(chat_id, group_name)
         .map_err(|e| BotError::database("cannot check if group exists", e))?;
 
     if group_exists {
         let members = memory
             .lock()
             .await
-            .get_group_members(chat_id, &group_name)
+            .get_group_members(chat_id, group_name)
             .map_err(|e| BotError::database("cannot get group members", e))?;
         let result = format_simple_list(&members);
         bot.send_message(msg.chat.id, result)

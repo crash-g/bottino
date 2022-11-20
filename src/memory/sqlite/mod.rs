@@ -244,7 +244,7 @@ impl Memory for SqliteMemory {
                 .with_context(|| "Could not prepare get groups statement")?;
 
             let group_iter = stmt
-                .query_map(params![&chat_id], |row| Ok(row.get(0)?))
+                .query_map(params![&chat_id], |row| row.get(0))
                 .with_context(|| "Query to get groups failed")?;
 
             let groups = group_iter.collect::<Result<_, _>>()?;
@@ -282,7 +282,7 @@ impl Memory for SqliteMemory {
                 .with_context(|| "Could not prepare get group members statement")?;
 
             let group_member_iter = stmt
-                .query_map(params![&chat_id, &group_name], |row| Ok(row.get(0)?))
+                .query_map(params![&chat_id, &group_name], |row| row.get(0))
                 .with_context(|| "Query to get group members failed")?;
 
             let group_members = group_member_iter.collect::<Result<_, _>>()?;

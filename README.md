@@ -17,8 +17,7 @@ where it is started.
 
 ## TODO list
 
-- add groups, but finalize commands first (see
-  [below](#should-we-really-allow-custom-amounts-for-aliases))
+- modify bot logic to handle repeated creditors/debtors
 - add aliases (?)
 - add interactive mode to delete expense (?)
 - add interactive mode to list expenses (?)

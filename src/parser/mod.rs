@@ -20,7 +20,7 @@ pub fn parse_group_and_members(s: &str) -> Result<(String, Vec<String>), BotErro
     if parts.is_empty() {
         Err(BotError::new(
             format!("Missing group name: {}", s),
-            format!("Missing group name. Format must be 'group_name [member_name...]"),
+            "Missing group name. Format must be 'group_name [member_name...]".to_string(),
         ))
     } else {
         let members = parts.split_off(1);

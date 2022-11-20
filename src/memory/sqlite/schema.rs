@@ -1,4 +1,4 @@
-const CREATE_EXPENSE_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS expense (
+const CREATE_EXPENSE_TABLE: &str = "CREATE TABLE IF NOT EXISTS expense (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   chat_id INTEGER NOT NULL,
   amount INTEGER NOT NULL,
@@ -9,21 +9,21 @@ const CREATE_EXPENSE_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS expense (
   deleted_at DATETIME
 )";
 
-const CREATE_PARTICIPANT_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS participant (
+const CREATE_PARTICIPANT_TABLE: &str = "CREATE TABLE IF NOT EXISTS participant (
   name TEXT NOT NULL,
   is_creditor BOOL NOT NULL,
   expense_id INTEGER NOT NULL,
   amount INTEGER
 )";
 
-const CREATE_GROUP_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS participant_group (
+const CREATE_GROUP_TABLE: &str = "CREATE TABLE IF NOT EXISTS participant_group (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   chat_id INTEGER NOT NULL,
   name TEXT NOT NULL UNIQUE,
   UNIQUE(chat_id, name)
 )";
 
-const CREATE_GROUP_MEMBER_TABLE: &'static str = "CREATE TABLE IF NOT EXISTS group_member (
+const CREATE_GROUP_MEMBER_TABLE: &str = "CREATE TABLE IF NOT EXISTS group_member (
   name TEXT NOT NULL,
   group_id INTEGER NOT NULL,
   UNIQUE(name, group_id)
