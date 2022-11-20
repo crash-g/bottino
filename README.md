@@ -17,7 +17,11 @@ where it is started.
 
 ## TODO list
 
-- modify bot logic to handle repeated creditors/debtors
+- add commands for participants
+- make all names lowercase in the parser
+- add checks for the existence of participants in expense/group commands
+- normalize expense to only contain creditor/debtor once
+- make sure the bot logic still works with normalized expenses
 - add aliases (?)
 - add interactive mode to delete expense (?)
 - add interactive mode to list expenses (?)
