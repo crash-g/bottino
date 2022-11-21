@@ -189,7 +189,7 @@ fn are_all_debtors_fixed(participants: &[ParsedParticipant]) -> bool {
         .iter()
         .filter_map(|p| {
             if p.is_debtor() {
-                Some(p.name.to_lowercase())
+                Some(&p.name)
             } else {
                 None
             }
@@ -199,7 +199,7 @@ fn are_all_debtors_fixed(participants: &[ParsedParticipant]) -> bool {
     let all_creditors_appear_as_debtors = participants
         .iter()
         .filter(|p| p.is_creditor())
-        .all(|p| debtors.contains(&p.name.to_lowercase()));
+        .all(|p| debtors.contains(&p.name));
 
     only_fixed_debtors && all_creditors_appear_as_debtors
 }
@@ -212,7 +212,7 @@ fn has_multiple_custom_amounts(participants: Vec<&ParsedParticipant>) -> bool {
     let mut uniq = HashSet::new();
     let result = !participants.iter().all(|x| {
         if x.amount.is_some() {
-            uniq.insert(x.name.to_lowercase())
+            uniq.insert(&x.name)
         } else {
             true
         }

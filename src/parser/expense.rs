@@ -59,9 +59,9 @@ fn parse_participant_name(s: &str, is_creditor: bool) -> IResult<&str, ParsedPar
         let is_group = s.starts_with('#');
 
         let name = if s.starts_with('#') || s.starts_with('@') {
-            s[1..s.len()].to_string()
+            s[1..s.len()].to_lowercase()
         } else {
-            s.to_string()
+            s.to_lowercase()
         };
 
         if is_creditor && is_group {
@@ -139,7 +139,7 @@ mod tests {
 
     #[test]
     fn test_parse_participant_name() {
-        let participant = parse_participant_name("abc", true);
+        let participant = parse_participant_name("aBC", true);
         assert!(participant.is_ok());
         let participant = participant.expect("test").1;
         assert_eq!(participant.name, "abc".to_string());
@@ -147,7 +147,7 @@ mod tests {
         assert!(participant.amount.is_none());
         assert!(!participant.is_group());
 
-        let participant = parse_participant_name("@abc", false);
+        let participant = parse_participant_name("@Abc", false);
         assert!(participant.is_ok());
         let participant = participant.expect("test").1;
         assert_eq!(participant.name, "abc".to_string());
@@ -155,7 +155,7 @@ mod tests {
         assert!(participant.amount.is_none());
         assert!(!participant.is_group());
 
-        let participant = parse_participant_name("#abc", false);
+        let participant = parse_participant_name("#ABC", false);
         assert!(participant.is_ok());
         let participant = participant.expect("test").1;
         assert_eq!(participant.name, "abc".to_string());
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn test_parse_participants() -> anyhow::Result<()> {
-        let (rest, parsed) = parse_participants("name1/2 - aa", false)?;
+        let (rest, parsed) = parse_participants("Name1/2 - aa", false)?;
         assert_eq!(parsed[0].name, "name1");
         assert!(parsed[0].is_debtor());
         assert_eq!(parsed[0].amount, Some(200));
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn test_parse() -> anyhow::Result<()> {
         let (rest, expense) = parse_expense(
-            " @creditor1 creditor2/-21.1 34.3   debtor1 debtor2/3  @debtor3/1 #group  - yoh",
+            " @creditor1 creditor2/-21.1 34.3   Debtor1 debtor2/3  @debtor3/1 #group  - yoh",
         )?;
 
         assert_eq!(expense.participants.len(), 6);

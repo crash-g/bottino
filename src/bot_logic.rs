@@ -89,9 +89,8 @@ fn are_amount_equal(d: i64, c: i64) -> bool {
     (d + c).abs() < 1
 }
 
-fn compute_debts_and_credits(mut expenses: Vec<SavedExpense>) -> HashMap<String, i64> {
+fn compute_debts_and_credits(expenses: Vec<SavedExpense>) -> HashMap<String, i64> {
     let mut balance = HashMap::new();
-    make_names_lowercase(&mut expenses);
 
     for expense in expenses {
         compute_debts(&expense, &mut balance);
@@ -99,17 +98,6 @@ fn compute_debts_and_credits(mut expenses: Vec<SavedExpense>) -> HashMap<String,
     }
 
     balance
-}
-
-/// We save participants using the original string that users gave in input.
-/// However, participant names are case-insensitive, so when computing
-/// the actual balance we turn them into lower case.
-fn make_names_lowercase(expenses: &mut Vec<SavedExpense>) {
-    for e in expenses {
-        for p in &mut e.participants {
-            p.name = p.name.to_lowercase();
-        }
-    }
 }
 
 fn compute_debts(expense: &SavedExpense, balance: &mut HashMap<String, i64>) {
@@ -196,13 +184,12 @@ mod tests {
                 2340,
                 None,
             ),
-            // Also use some uppercase in names, to check that we turn them to lowercase:
             SavedExpense::new(
                 2,
                 vec![
-                    SavedParticipant::new_creditor("NAme2", None),
-                    SavedParticipant::new_debtor("NAME1", None),
-                    SavedParticipant::new_debtor("naME3", None),
+                    SavedParticipant::new_creditor("name2", None),
+                    SavedParticipant::new_debtor("name1", None),
+                    SavedParticipant::new_debtor("name3", None),
                 ],
                 3300,
                 None,
