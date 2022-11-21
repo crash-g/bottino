@@ -44,14 +44,14 @@ enum Command {
     #[command(description = "shows this message.")]
     Help,
     #[command(
-        description = "add a new expense; format: participant1 34.4 participant2 participant3"
+        description = "adds a new expense; format: participant1 34.4 participant2 participant3"
     )]
     Expense(String),
     #[command(description = "shortcut for the /expense command")]
     E(String),
-    #[command(description = "print the current balance.")]
+    #[command(description = "prints the current balance.")]
     Balance,
-    #[command(description = "mark all expenses as settled.")]
+    #[command(description = "marks all expenses as settled.")]
     Reset,
     #[command(
         description = "/list n shows the last n expenses; without argument, it shows the last one."
@@ -62,7 +62,8 @@ enum Command {
     )]
     Delete(String),
     #[command(
-        description = "/addparticipants participant1 participant2 adds participants that can be used in expenses."
+        description = "/addparticipants participant1 participant2 adds participants that can be \
+                       used as creditors or debtors in expenses."
     )]
     AddParticipants(String),
     #[command(
@@ -71,7 +72,7 @@ enum Command {
     )]
     RemoveParticipants(String),
     #[command(
-        description = "return the list of all registered participants (only registered participants can \
+        description = "returns the list of all registered participants (only registered participants can \
                        appear in expenses)."
     )]
     ListParticipants,
@@ -89,9 +90,9 @@ enum Command {
         description = "/removegroupmembers group_name member1 member2 removes two members from a group if present."
     )]
     RemoveGroupMembers(String),
-    #[command(description = "return the list of all existing groups.")]
+    #[command(description = "returns the list of all existing groups.")]
     ListGroups,
-    #[command(description = "return the list of all members of the given group.")]
+    #[command(description = "returns the list of all members of the given group.")]
     ListGroupMembers(String),
 }
 

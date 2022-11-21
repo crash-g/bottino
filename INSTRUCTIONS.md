@@ -1,9 +1,11 @@
 # Instructions
 
-For every chat/group the bot is used in, it keeps a separate list of expenses. The participants of
-such expenses may or may not be chat/group members.
+For every chat/group the bot is used in, it keeps a separate list of expenses, participants and
+groups. The participants of such expenses may or may not be chat/group members.
 
-The bot supports the following list of commands:
+The bot supports the following commands:
+
+**commands to manage expenses**:
 
 - `/expense` or `/e`: register a new expense
 - `/balance`: show the current balance
@@ -11,7 +13,25 @@ The bot supports the following list of commands:
 - `/list`: show list of recent expenses
 - `/delete`: delete an expense by ID
 
-Some commands accept no arguments, other require a string. See below for a detailed description.
+**commands to manage participants**:
+
+- `/addparticipants`: add participants that can be used as creditors or debtors in expenses
+- `/removeparticipants`: remove participants that should not appear in expenses anymore
+- `/listparticipants`: return the list of all registered participants
+
+**commands to manage groups**:
+
+- `/addgroup`: create a group of participants
+- `/deletegroup`: delete a group of participants
+- `/addgroupmembers`: add members to a group
+- `/removegroupmembers`: remove members from a group
+- `/listgroups`: return the list of all existing groups
+- `/listgroupmembers`: return the list of all members of a given group
+
+Some commands accept no arguments, other require a string. In general, the bot does not answer to
+commands unless required or an error has occurred.
+
+See below for a detailed description.
 
 ## Expense
 
@@ -22,25 +42,34 @@ Register a new expense.
 The high-level syntax is
 
 ```
-/expense participant [participant...] amount [participant...] [- message]
+/expense participant_or_group [participant_or_group...] amount [participant_or_group...] [- message]
 ```
 
-#### Participant
+#### Participant or Group
 
-A participant to an expense: either a **creditor**, if to the left of the amount, or a **debtor**,
-if to the right.
+A single participant or a group of participants to an expense: either **creditors**, if to the left
+of the amount, or **debtors**, if to the right.
 
-Every participant can be both a creditor and a debtor. By default, a creditor is always counted as a
-debtor too. To prevent this (i.e., to register expenses where someone paid without participating)
-see the examples below.
+Every participant/group can be both a creditor and a debtor. By default, a creditor is always
+counted as a debtor too. To prevent this (i.e., to register expenses where someone paid without
+participating) see the examples below.
 
-The participant is composed of a **name** and an **optional amount**:
+There are only minor differences from a participant and a group of participants. In short:
+
+- a group name always starts with `#`
+- with groups it is not possible to specify custom amounts
+
+**Participants and groups must be registered before being available in expenses** (see below).
+
+##### Participant
+
+A participant is composed of a **name** and an **optional amount**:
 
 ```
 name[/amount]
 ```
 
-##### Name
+###### Name
 
 The name is an alphanumeric sequence of ASCII characters, optionally preceded by `@`. Examples:
 
@@ -48,18 +77,30 @@ The name is an alphanumeric sequence of ASCII characters, optionally preceded by
 - `a123`
 - `@abc` (same as `abc`)
 - `@a123` (same as `a123`)
+- `@ABC` (same as `abc`, since names are **case-insensitive**)
 
-##### Participant amount
+###### Participant amount
 
 The amount is the amount of money paid, if the participant is a creditor, or owed, if the
-participant is a debtor. It must be a floating point number which follows the same rules of the
-[expense amount](#amount).
+participant is a debtor.
+
+It must be a floating point number which follows the same rules of the [expense amount](#amount).
 
 All creditors without a custom amount paid an equal share of the total amount, after subtracting any
 creditor custom amount (see examples below).
 
 Similarly, all debtors without a custom amount owe an equal share of the total amount, after
 subtracting any debtor custom amount (see examples below).
+
+##### Group
+
+Groups are basically just a shortcut to specify more than one participant. A group is only composed
+of a name, since it's not possible to specify a custom amount (see examples below).
+
+###### Name
+
+The group name follows the same rules of the participant name, with the exception that it must be
+prepended with `#`.
 
 #### Amount
 
@@ -74,6 +115,7 @@ Examples:
 - `12.1`
 - `12.14`
 - `12,14` (same as `12.14`)
+- `12000.1`
 
 #### Message
 
@@ -82,16 +124,46 @@ preceded by a dash and a space (`- `).
 
 ### Examples
 
-- `/expense p1 12 p2 p3`: `p1`, `p2` and `p3` paid something 12 euros; `p1` paid for everybody, so
-  `p2` and `p3` owe him/her 4 euros each
-- `/expense @p1 12 p2 p3 - breakfast`: same as above, but with a note associated to the expense, to
-  remember that the 12 euros were paid for a breakfast
-- `/expense @p1 12 p2/2 p3`: same as above, but `p2` only owes 2 euros to `p1`; that means that `p1`
-  and `p3` spent 5 each
-- `/expense p1 p2/3 12 p2/2 p3`: the expense was paid by `p2` who put 3 euros and `p1` who put the
-  rest; however, `p2` only spent 2 euros, so `p3` owes 1 euro to `p2` and 4 euros to `p1`
-- `/expense p1 12 p1/0 p2 p3`: `p1` paid everything but did not spend anything, so `p2` and `p3`
-  must give 6 euros back each
+#### `/expense p1 12 p2 p3`
+
+`p1`, `p2` and `p3` paid 12 euros; `p1` paid for everybody, so `p2` and `p3` owe him/her 4 euros
+each.
+
+#### `/expense @p1 12 p2 p3 - breakfast`
+
+Same as above, but with a note associated to the expense, to remember that the 12 euros were paid
+for a breakfast.
+
+#### `/expense @p1 12 p2/2 p3`
+
+Same as above, but `p2` only owes 2 euros to `p1`; that means that `p1` and `p3` spent 5 each.
+
+#### `/expense p1 p2/3 12 p2/2 p3`
+
+The expense was paid by `p2` who put 3 euros and `p1` who put the rest; however, `p2` only spent 2
+euros, so `p3` owes 1 euro to `p2` and 4 euros to `p1`.
+
+#### `/expense p1 12 p1/0 p2 p3`
+
+`p1` paid everything but did not spend anything, so `p2` and `p3` must give 6 euros back each.
+
+#### `/expense p1 12 #all`
+
+`p1` paid 12 euros for something where "all" participated. `all` is a group that must be defined
+before usage (see below).
+
+#### `/expense p1 12 #all p3/1`
+
+Same as above, but this example shows how it's possible to specify a custom amount for someone that
+is part of the `all` group.
+
+#### `/expense #g1 12 #g2 #g3`
+
+The participants in group `g1` paid 12 euros and the participants in group `g2` and `g3` are
+debtors: even if there are participants who are both in `g2` and `g3` the expense is still valid.
+
+In fact, a participant can appear many times and will only count once. However, **a participant can
+only appear once with a custom amount**.
 
 ## E
 
@@ -142,3 +214,89 @@ Delete an expense by ID. The ID can be found using the `/list` command.
 Examples:
 
 - `/delete 12`: delete the expense with ID 12
+
+## Add participants
+
+Before using a participant in an expense their name must be registered with this command.
+
+The command accepts a list of space-separated participant names: there must be at least one
+participant, or an error message is returned. If one or more participants already exist, they are
+silently ignored. If one or more participants do not exist, an error is returned.
+
+Examples:
+
+- `/addparticipants p1 p2`
+
+## Remove participants
+
+Participants that are no longer needed can be removed with this command.
+
+The syntax is the same as the syntax of the command to add participants (there must be at least one
+participant). If one or more participants do not exist, they are silently ignored.
+
+If the participant is part of outstanding expenses, it is not removed from them. If needed, these
+expenses must be manually deleted.
+
+Examples:
+
+- `/removeparticipants p1 p2`
+
+## List participants
+
+This command is used to get the list of all registered participants. No argument accepted.
+
+## Add group
+
+As for participants, groups must be registered before being used in an expense.
+
+The command has the following syntax:
+
+```
+/addgroup group_name [member...]
+```
+
+The initial list of members is optional, but the group name is required. If the group already exists
+nothing happens.
+
+## Delete group
+
+A group which is no longer needed can be deleted with this command. All expenses that previously used
+this group are not affected.
+
+If the group does not exist, an error message is returned.
+
+Examples:
+
+- `/deletegroup group_name`
+
+## Add group members
+
+Members can be added to an existing group with this command. All expenses that previously used
+this group are not affected.
+
+If the group or a participant does not exist, an error message is returned.
+
+The syntax is the same as the `\addgroup` syntax.
+
+## Remove group members
+
+Members can be removed from an existing group with this command. All expenses that previously used
+this group are not affected.
+
+If the group or a participant does not exist, an error message is returned.
+
+The syntax is the same as the `\addgroup` syntax.
+
+## List groups
+
+This command returns the list of all existing groups. No argument accepted.
+
+## List group members
+
+This command returns the list of participants of an existing group.
+
+If the group does not exist, an error message is returned.
+
+Examples:
+
+- `listgroupmembers group_name`
