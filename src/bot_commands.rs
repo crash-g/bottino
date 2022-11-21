@@ -1,6 +1,6 @@
 //! Definition of Telegram bot commands and handlers.
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use log::{debug, info};
 use teloxide::{
@@ -14,13 +14,19 @@ use teloxide::{
 };
 use tokio::sync::Mutex;
 
-use crate::memory::Memory;
-use crate::parser::{parse_expense, parse_group_and_members, parse_participants};
-use crate::validator::{validate_and_resolve_groups, validate_expense};
 use crate::{bot_logic::compute_exchanges, error::BotError};
 use crate::{
     formatter::{format_balance, format_list_expenses, format_simple_list},
     memory::sqlite::SqliteMemory,
+};
+use crate::{memory::Memory, validator::validate_participants_exist};
+use crate::{
+    parser::{parse_expense, parse_group_and_members, parse_participants},
+    validator::validate_group_exists,
+};
+use crate::{
+    types::ParsedExpense,
+    validator::{validate_and_resolve_groups, validate_expense},
 };
 
 #[derive(Clone, Default)]
@@ -120,13 +126,13 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                     }
                     Command::AddGroup(s) => handle_add_group(&msg, &memory, &s).await,
                     Command::DeleteGroup(group_name) => {
-                        handle_delete_group(&bot, &msg, &memory, &group_name).await
+                        handle_delete_group(&msg, &memory, &group_name).await
                     }
                     Command::AddGroupMembers(s) => {
-                        handle_add_group_members(&bot, &msg, &memory, &s).await
+                        handle_add_group_members(&msg, &memory, &s).await
                     }
                     Command::RemoveGroupMembers(s) => {
-                        handle_remove_group_members(&bot, &msg, &memory, &s).await
+                        handle_remove_group_members(&msg, &memory, &s).await
                     }
                     Command::ListGroups => handle_list_groups(&bot, &msg, &memory).await,
                     Command::ListGroupMembers(group_name) => {
@@ -171,7 +177,9 @@ async fn handle_expense<M: Memory>(
     })?;
     let expense = expense.1;
     let expense = validate_and_resolve_groups(expense, chat_id, memory).await?;
-    validate_expense(&expense)?;
+    validate_expense(&expense, chat_id, memory).await?;
+
+    let expense = normalize_participants(expense);
 
     memory
         .lock()
@@ -180,6 +188,39 @@ async fn handle_expense<M: Memory>(
         .map_err(|e| BotError::database("cannot save expense", e))?;
 
     Ok(())
+}
+
+/// Make sure that each participant appears at most once as debtor and
+/// at most once as creditor (so at most twice in total).
+///
+/// If a participant has a custom amount, make sure to preserve it.
+fn normalize_participants(expense: ParsedExpense) -> ParsedExpense {
+    let mut participants = HashMap::new();
+
+    for participant in expense.participants {
+        if participants.contains_key(&(participant.name.clone(), participant.is_creditor())) {
+            if participant.amount.is_some() {
+                // If a participant has a custom amount, it supersedes any mention without.
+                // Note that this can only happen once because we have already validated the expense.
+                participants.insert(
+                    (participant.name.clone(), participant.is_creditor()),
+                    participant,
+                );
+            }
+        } else {
+            // We insert the participant if not already present.
+            participants.insert(
+                (participant.name.clone(), participant.is_creditor()),
+                participant,
+            );
+        }
+    }
+
+    ParsedExpense::new(
+        participants.into_iter().map(|(_, p)| p).collect(),
+        expense.amount,
+        expense.message,
+    )
 }
 
 async fn handle_balance<M: Memory>(
@@ -343,11 +384,15 @@ async fn handle_add_group<M: Memory>(
         "Creating group named {group_name} with members: {:#?}",
         members
     );
+
+    validate_participants_exist(&members, chat_id, memory).await?;
+
     memory
         .lock()
         .await
         .create_group_if_not_exists(chat_id, &group_name)
         .map_err(|e| BotError::database("cannot create group", e))?;
+
     if !members.is_empty() {
         memory
             .lock()
@@ -359,39 +404,25 @@ async fn handle_add_group<M: Memory>(
 }
 
 async fn handle_delete_group<M: Memory>(
-    bot: &Bot,
     msg: &Message,
     memory: &Arc<Mutex<M>>,
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     info!("Deleting group named {group_name}");
-    let group_exists = memory
+
+    validate_group_exists(group_name, chat_id, memory).await?;
+
+    memory
         .lock()
         .await
-        .group_exists(chat_id, group_name)
-        .map_err(|e| BotError::database("cannot check if group exists", e))?;
-
-    if group_exists {
-        memory
-            .lock()
-            .await
-            .delete_group_if_exists(chat_id, group_name)
-            .map_err(|e| BotError::database("cannot delete group", e))?;
-    } else {
-        bot.send_message(
-            msg.chat.id,
-            format!("The group '{group_name}' does not exist!"),
-        )
-        .await
-        .map_err(|e| BotError::telegram("cannot send group does not exist error", e))?;
-    }
+        .delete_group_if_exists(chat_id, group_name)
+        .map_err(|e| BotError::database("cannot delete group", e))?;
 
     Ok(())
 }
 
 async fn handle_add_group_members<M: Memory>(
-    bot: &Bot,
     msg: &Message,
     memory: &Arc<Mutex<M>>,
     payload: &str,
@@ -403,31 +434,19 @@ async fn handle_add_group_members<M: Memory>(
         members
     );
 
-    let group_exists = memory
+    validate_group_exists(&group_name, chat_id, memory).await?;
+    validate_participants_exist(&members, chat_id, memory).await?;
+
+    memory
         .lock()
         .await
-        .group_exists(chat_id, &group_name)
-        .map_err(|e| BotError::database("cannot check if group exists", e))?;
+        .add_group_members_if_not_exist(chat_id, &group_name, &members)
+        .map_err(|e| BotError::database("cannot add group members", e))?;
 
-    if group_exists {
-        memory
-            .lock()
-            .await
-            .add_group_members_if_not_exist(chat_id, &group_name, &members)
-            .map_err(|e| BotError::database("cannot add group members", e))?;
-    } else {
-        bot.send_message(
-            msg.chat.id,
-            format!("The group '{group_name}' does not exist!"),
-        )
-        .await
-        .map_err(|e| BotError::telegram("cannot send group does not exist error", e))?;
-    }
     Ok(())
 }
 
 async fn handle_remove_group_members<M: Memory>(
-    bot: &Bot,
     msg: &Message,
     memory: &Arc<Mutex<M>>,
     payload: &str,
@@ -435,26 +454,15 @@ async fn handle_remove_group_members<M: Memory>(
     let chat_id = msg.chat.id.0;
     let (group_name, members) = parse_group_and_members(payload)?;
 
-    let group_exists = memory
+    validate_group_exists(&group_name, chat_id, memory).await?;
+    validate_participants_exist(&members, chat_id, memory).await?;
+
+    memory
         .lock()
         .await
-        .group_exists(chat_id, &group_name)
-        .map_err(|e| BotError::database("cannot check if group exists", e))?;
+        .remove_group_members_if_exist(chat_id, &group_name, &members)
+        .map_err(|e| BotError::database("cannot remove group members", e))?;
 
-    if group_exists {
-        memory
-            .lock()
-            .await
-            .remove_group_members_if_exist(chat_id, &group_name, &members)
-            .map_err(|e| BotError::database("cannot remove group members", e))?;
-    } else {
-        bot.send_message(
-            msg.chat.id,
-            format!("The group '{group_name}' does not exist!"),
-        )
-        .await
-        .map_err(|e| BotError::telegram("cannot send group does not exist error", e))?;
-    }
     Ok(())
 }
 
@@ -486,30 +494,19 @@ async fn handle_list_group_members<M: Memory>(
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let group_exists = memory
+
+    validate_group_exists(group_name, chat_id, memory).await?;
+
+    let members = memory
         .lock()
         .await
-        .group_exists(chat_id, group_name)
-        .map_err(|e| BotError::database("cannot check if group exists", e))?;
+        .get_group_members(chat_id, group_name)
+        .map_err(|e| BotError::database("cannot get group members", e))?;
 
-    if group_exists {
-        let members = memory
-            .lock()
-            .await
-            .get_group_members(chat_id, group_name)
-            .map_err(|e| BotError::database("cannot get group members", e))?;
-        let result = format_simple_list(&members);
-        bot.send_message(msg.chat.id, result)
-            .await
-            .map_err(|e| BotError::telegram("cannot send group member list", e))?;
-    } else {
-        bot.send_message(
-            msg.chat.id,
-            format!("The group '{group_name}' does not exist!"),
-        )
+    let result = format_simple_list(&members);
+    bot.send_message(msg.chat.id, result)
         .await
-        .map_err(|e| BotError::telegram("cannot send group does not exist error", e))?;
-    }
+        .map_err(|e| BotError::telegram("cannot send group member list", e))?;
 
     Ok(())
 }

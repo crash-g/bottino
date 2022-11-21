@@ -1,4 +1,4 @@
-//! Functions that check the validity of user input.
+//! Functions that check the validity of an expense parsed from user input.
 //!
 //! These functions are called after the parsing phase and execute
 //! checks that are not easily done by the parser.
@@ -11,6 +11,8 @@ use tokio::sync::Mutex;
 use crate::error::BotError;
 use crate::memory::Memory;
 use crate::types::{ParsedExpense, ParsedParticipant};
+
+use super::validate_participants_exist;
 
 /// Check that groups do not have custom amount set and replace them with their members.
 pub async fn validate_and_resolve_groups<M: Memory>(
@@ -68,48 +70,25 @@ pub async fn validate_and_resolve_groups<M: Memory>(
 /// - the total fixed debt is equal to the total amount when all debtors are fixed
 /// - a creditor appears at most once with a custom amount
 /// - a debtor appears at most once with a custom amount
-pub fn validate_expense(expense: &ParsedExpense) -> Result<(), BotError> {
-    let amount = expense.amount;
+/// - all participants exist in the database
+pub async fn validate_expense<M: Memory>(
+    expense: &ParsedExpense,
+    chat_id: i64,
+    memory: &Arc<Mutex<M>>,
+) -> Result<(), BotError> {
+    at_least_one_participant(expense)?;
+    at_least_one_creditor(expense)?;
+    total_fixed_credit_in_range(expense)?;
+    total_fixed_debt_in_range(expense)?;
+    no_duplicate_custom_amounts(expense)?;
 
-    let no_participants = expense.participants.is_empty();
-    let no_creditors = !expense.participants.iter().any(|p| p.is_creditor());
+    all_participants_exist(expense, chat_id, memory).await?;
 
-    let only_fixed_creditors = expense
-        .participants
-        .iter()
-        .filter(|p| p.is_creditor())
-        .all(|p| p.amount.is_some());
-    let only_fixed_debtors = are_all_debtors_fixed(&expense.participants);
+    Ok(())
+}
 
-    let total_credit: i64 = expense
-        .participants
-        .iter()
-        .filter(|p| p.is_creditor() && p.amount.is_some())
-        .map(|p| p.amount.expect("just checked the amount is non-empty"))
-        .sum();
-    let total_debt: i64 = expense
-        .participants
-        .iter()
-        .filter(|p| p.is_debtor() && p.amount.is_some())
-        .map(|p| p.amount.expect("just checked the amount is non-empty"))
-        .sum();
-
-    let creditors_have_multiple_custom_amount = has_multiple_custom_amounts(
-        expense
-            .participants
-            .iter()
-            .filter(|p| p.is_creditor())
-            .collect(),
-    );
-    let debtors_have_multiple_custom_amount = has_multiple_custom_amounts(
-        expense
-            .participants
-            .iter()
-            .filter(|p| p.is_debtor())
-            .collect(),
-    );
-
-    if no_participants {
+fn at_least_one_participant(expense: &ParsedExpense) -> Result<(), BotError> {
+    if expense.participants.is_empty() {
         Err(BotError::new(
             format!(
                 "there are neither debtors nor creditors in this expense!\n{:#?}",
@@ -117,12 +96,40 @@ pub fn validate_expense(expense: &ParsedExpense) -> Result<(), BotError> {
             ),
             "there are neither debtors nor creditors in this expense!".to_string(),
         ))
-    } else if no_creditors {
+    } else {
+        Ok(())
+    }
+}
+
+fn at_least_one_creditor(expense: &ParsedExpense) -> Result<(), BotError> {
+    let no_creditors = !expense.participants.iter().any(|p| p.is_creditor());
+    if no_creditors {
         Err(BotError::new(
             format!("there are no creditors in this expense!\n{:#?}", expense),
             "there are no creditors in this expense!".to_string(),
         ))
-    } else if total_credit > amount {
+    } else {
+        Ok(())
+    }
+}
+
+fn total_fixed_credit_in_range(expense: &ParsedExpense) -> Result<(), BotError> {
+    let amount = expense.amount;
+
+    let only_fixed_creditors = expense
+        .participants
+        .iter()
+        .filter(|p| p.is_creditor())
+        .all(|p| p.amount.is_some());
+
+    let total_credit: i64 = expense
+        .participants
+        .iter()
+        .filter(|p| p.is_creditor() && p.amount.is_some())
+        .map(|p| p.amount.expect("just checked the amount is non-empty"))
+        .sum();
+
+    if total_credit > amount {
         Err(BotError::new(
             format!(
                 "the money that people paid are more than the total expense amount!\n{:#?}",
@@ -138,7 +145,24 @@ pub fn validate_expense(expense: &ParsedExpense) -> Result<(), BotError> {
             ),
             "all creditors paid a fixed amount and the total is less than the expense amount!".to_string()
         ))
-    } else if total_debt > amount {
+    } else {
+        Ok(())
+    }
+}
+
+fn total_fixed_debt_in_range(expense: &ParsedExpense) -> Result<(), BotError> {
+    let amount = expense.amount;
+
+    let only_fixed_debtors = are_all_debtors_fixed(&expense.participants);
+
+    let total_debt: i64 = expense
+        .participants
+        .iter()
+        .filter(|p| p.is_debtor() && p.amount.is_some())
+        .map(|p| p.amount.expect("just checked the amount is non-empty"))
+        .sum();
+
+    if total_debt > amount {
         Err(BotError::new(
             format!(
                 "the money owed by people are more than the total expense amount!\n{:#?}",
@@ -154,7 +178,28 @@ pub fn validate_expense(expense: &ParsedExpense) -> Result<(), BotError> {
             ),
             "all debtors owe a fixed amount and the total is less than the expense amount!".to_string()
         ))
-    } else if creditors_have_multiple_custom_amount {
+    } else {
+        Ok(())
+    }
+}
+
+fn no_duplicate_custom_amounts(expense: &ParsedExpense) -> Result<(), BotError> {
+    let creditors_have_multiple_custom_amount = has_multiple_custom_amounts(
+        expense
+            .participants
+            .iter()
+            .filter(|p| p.is_creditor())
+            .collect(),
+    );
+    let debtors_have_multiple_custom_amount = has_multiple_custom_amounts(
+        expense
+            .participants
+            .iter()
+            .filter(|p| p.is_debtor())
+            .collect(),
+    );
+
+    if creditors_have_multiple_custom_amount {
         Err(BotError::new(
             format!(
                 "there are creditors appearing multiple times with custom amounts!\n{:#?}",
@@ -175,6 +220,16 @@ pub fn validate_expense(expense: &ParsedExpense) -> Result<(), BotError> {
     }
 }
 
+async fn all_participants_exist<M: Memory>(
+    expense: &ParsedExpense,
+    chat_id: i64,
+    memory: &Arc<Mutex<M>>,
+) -> Result<(), BotError> {
+    let participants: Vec<_> = expense.participants.iter().map(|p| &p.name).collect();
+    validate_participants_exist(&participants, chat_id, memory).await?;
+    Ok(())
+}
+
 /// This is more difficult than checking if all creditors are fixed,
 /// because a creditor is automatically a debtor. The only way that all
 /// debtors can be fixed is if all debtors are fixed and all creditors also
@@ -187,13 +242,7 @@ fn are_all_debtors_fixed(participants: &[ParsedParticipant]) -> bool {
 
     let debtors: HashSet<_> = participants
         .iter()
-        .filter_map(|p| {
-            if p.is_debtor() {
-                Some(&p.name)
-            } else {
-                None
-            }
-        })
+        .filter_map(|p| if p.is_debtor() { Some(&p.name) } else { None })
         .collect();
 
     let all_creditors_appear_as_debtors = participants
@@ -233,7 +282,7 @@ mod tests {
             amount: 33,
             message: None,
         };
-        assert!(validate_expense(&expense).is_err());
+        assert!(at_least_one_participant(&expense).is_err());
     }
 
     #[test]
@@ -261,14 +310,14 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_custom_amounts() {
+    fn test_no_duplicate_custom_amounts() {
         let participants = vec![
             ParsedParticipant::new_creditor("a", None),
             ParsedParticipant::new_creditor("b", None),
             ParsedParticipant::new_creditor("a", None),
         ];
         let expense = ParsedExpense::new(participants, 33, None);
-        assert!(validate_expense(&expense).is_ok());
+        assert!(no_duplicate_custom_amounts(&expense).is_ok());
 
         let participants = vec![
             ParsedParticipant::new_creditor("a", None),
@@ -277,7 +326,7 @@ mod tests {
             ParsedParticipant::new_debtor("a", None),
         ];
         let expense = ParsedExpense::new(participants, 33, None);
-        assert!(validate_expense(&expense).is_ok());
+        assert!(no_duplicate_custom_amounts(&expense).is_ok());
 
         let participants = vec![
             ParsedParticipant::new_creditor("a", Some(3)),
@@ -285,7 +334,7 @@ mod tests {
             ParsedParticipant::new_creditor("a", Some(3)),
         ];
         let expense = ParsedExpense::new(participants, 33, None);
-        assert!(validate_expense(&expense).is_err());
+        assert!(no_duplicate_custom_amounts(&expense).is_err());
 
         let participants = vec![
             ParsedParticipant::new_creditor("a", None),
@@ -294,7 +343,7 @@ mod tests {
             ParsedParticipant::new_debtor("a", Some(3)),
         ];
         let expense = ParsedExpense::new(participants, 33, None);
-        assert!(validate_expense(&expense).is_err());
+        assert!(no_duplicate_custom_amounts(&expense).is_err());
 
         let participants = vec![
             ParsedParticipant::new_creditor("a", Some(3)),
@@ -304,6 +353,6 @@ mod tests {
             ParsedParticipant::new_debtor("a", None),
         ];
         let expense = ParsedExpense::new(participants, 33, None);
-        assert!(validate_expense(&expense).is_ok());
+        assert!(no_duplicate_custom_amounts(&expense).is_ok());
     }
 }
