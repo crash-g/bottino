@@ -290,7 +290,7 @@ impl Memory for SqliteMemory {
             {
                 let mut insert_member_stmt = tx.prepare_cached(
                     "INSERT OR IGNORE INTO group_member (group_id, participant_id)
-                     SELECT ?1, p.id FROM participant
+                     SELECT ?1, id FROM participant
                      WHERE chat_id = ?2 AND name = ?3",
                 )?;
                 // It's unclear how to use an IN clause, so we use a loop
