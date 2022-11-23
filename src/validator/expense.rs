@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::error::BotError;
+use crate::error::{BotError, InputError};
 use crate::memory::Memory;
 use crate::types::{ParsedExpense, ParsedParticipant};
 
@@ -19,16 +19,10 @@ pub async fn validate_and_resolve_groups<M: Memory>(
     mut expense: ParsedExpense,
     chat_id: i64,
     memory: &Arc<Mutex<M>>,
-) -> Result<ParsedExpense, BotError> {
+) -> anyhow::Result<ParsedExpense> {
     for participant in &expense.participants {
         if participant.is_group() && participant.amount.is_some() {
-            return Err(BotError::new(
-                format!(
-                    "there is a group with a custom amount in this expense!\n{:#?}",
-                    expense
-                ),
-                "custom amounts are not allowed for groups!".to_string(),
-            ));
+            return Err(InputError::group_with_custom_amount().into());
         }
     }
 
@@ -75,7 +69,7 @@ pub async fn validate_expense<M: Memory>(
     expense: &ParsedExpense,
     chat_id: i64,
     memory: &Arc<Mutex<M>>,
-) -> Result<(), BotError> {
+) -> anyhow::Result<()> {
     at_least_one_participant(expense)?;
     at_least_one_creditor(expense)?;
     total_fixed_credit_in_range(expense)?;
@@ -87,33 +81,30 @@ pub async fn validate_expense<M: Memory>(
     Ok(())
 }
 
-fn at_least_one_participant(expense: &ParsedExpense) -> Result<(), BotError> {
+fn at_least_one_participant(expense: &ParsedExpense) -> Result<(), InputError> {
     if expense.participants.is_empty() {
-        Err(BotError::new(
-            format!(
-                "there are neither debtors nor creditors in this expense!\n{:#?}",
-                expense
-            ),
+        Err(InputError::invalid_expense(
             "there are neither debtors nor creditors in this expense!".to_string(),
+            format!("{:#?}", expense),
         ))
     } else {
         Ok(())
     }
 }
 
-fn at_least_one_creditor(expense: &ParsedExpense) -> Result<(), BotError> {
+fn at_least_one_creditor(expense: &ParsedExpense) -> Result<(), InputError> {
     let no_creditors = !expense.participants.iter().any(|p| p.is_creditor());
     if no_creditors {
-        Err(BotError::new(
-            format!("there are no creditors in this expense!\n{:#?}", expense),
+        Err(InputError::invalid_expense(
             "there are no creditors in this expense!".to_string(),
+            format!("{:#?}", expense),
         ))
     } else {
         Ok(())
     }
 }
 
-fn total_fixed_credit_in_range(expense: &ParsedExpense) -> Result<(), BotError> {
+fn total_fixed_credit_in_range(expense: &ParsedExpense) -> Result<(), InputError> {
     let amount = expense.amount;
 
     let only_fixed_creditors = expense
@@ -130,27 +121,22 @@ fn total_fixed_credit_in_range(expense: &ParsedExpense) -> Result<(), BotError> 
         .sum();
 
     if total_credit > amount {
-        Err(BotError::new(
-            format!(
-                "the money that people paid are more than the total expense amount!\n{:#?}",
-                expense
-            ),
+        Err(InputError::invalid_expense(
             "the money that people paid are more than the total expense amount!".to_string(),
+            format!("{:#?}", expense),
         ))
     } else if total_credit < amount && only_fixed_creditors {
-        Err(BotError::new(
-            format!(
-                "all creditors paid a fixed amount and the total is less than the expense amount!\n{:#?}",
-                expense
-            ),
-            "all creditors paid a fixed amount and the total is less than the expense amount!".to_string()
+        Err(InputError::invalid_expense(
+            "all creditors paid a fixed amount and the total is less than the expense amount!"
+                .to_string(),
+            format!("{:#?}", expense),
         ))
     } else {
         Ok(())
     }
 }
 
-fn total_fixed_debt_in_range(expense: &ParsedExpense) -> Result<(), BotError> {
+fn total_fixed_debt_in_range(expense: &ParsedExpense) -> Result<(), InputError> {
     let amount = expense.amount;
 
     let only_fixed_debtors = are_all_debtors_fixed(&expense.participants);
@@ -163,27 +149,22 @@ fn total_fixed_debt_in_range(expense: &ParsedExpense) -> Result<(), BotError> {
         .sum();
 
     if total_debt > amount {
-        Err(BotError::new(
-            format!(
-                "the money owed by people are more than the total expense amount!\n{:#?}",
-                expense
-            ),
+        Err(InputError::invalid_expense(
             "the money owed by people are more than the total expense amount!".to_string(),
+            format!("{:#?}", expense),
         ))
     } else if total_debt < amount && only_fixed_debtors {
-        Err(BotError::new(
-            format!(
-                "all debtors owe a fixed amount and the total is less than the expense amount!\n{:#?}",
-                expense
-            ),
-            "all debtors owe a fixed amount and the total is less than the expense amount!".to_string()
+        Err(InputError::invalid_expense(
+            "all debtors owe a fixed amount and the total is less than the expense amount!"
+                .to_string(),
+            format!("{:#?}", expense),
         ))
     } else {
         Ok(())
     }
 }
 
-fn no_duplicate_custom_amounts(expense: &ParsedExpense) -> Result<(), BotError> {
+fn no_duplicate_custom_amounts(expense: &ParsedExpense) -> Result<(), InputError> {
     let creditors_have_multiple_custom_amount = has_multiple_custom_amounts(
         expense
             .participants
@@ -200,20 +181,14 @@ fn no_duplicate_custom_amounts(expense: &ParsedExpense) -> Result<(), BotError> 
     );
 
     if creditors_have_multiple_custom_amount {
-        Err(BotError::new(
-            format!(
-                "there are creditors appearing multiple times with custom amounts!\n{:#?}",
-                expense
-            ),
+        Err(InputError::invalid_expense(
             "there are creditors appearing multiple times with custom amounts!".to_string(),
+            format!("{:#?}", expense),
         ))
     } else if debtors_have_multiple_custom_amount {
-        Err(BotError::new(
-            format!(
-                "there are debtors appearing multiple times with custom amounts!\n{:#?}",
-                expense
-            ),
+        Err(InputError::invalid_expense(
             "there are debtors appearing multiple times with custom amounts!".to_string(),
+            format!("{:#?}", expense),
         ))
     } else {
         Ok(())
@@ -224,7 +199,7 @@ async fn all_participants_exist<M: Memory>(
     expense: &ParsedExpense,
     chat_id: i64,
     memory: &Arc<Mutex<M>>,
-) -> Result<(), BotError> {
+) -> anyhow::Result<()> {
     let participants: Vec<_> = expense.participants.iter().map(|p| &p.name).collect();
     validate_participants_exist(&participants, chat_id, memory).await?;
     Ok(())
