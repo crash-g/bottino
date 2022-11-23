@@ -11,17 +11,17 @@ use tokio::sync::Mutex;
 mod expense;
 
 use crate::error::InputError;
-use crate::memory::Memory;
+use crate::database::Database;
 pub use expense::{validate_and_resolve_groups, validate_expense};
 
 /// Check that all participants provided by the user exist in the database.
-pub async fn validate_participants_exist<M: Memory, T: AsRef<str>>(
+pub async fn validate_participants_exist<D: Database, T: AsRef<str>>(
     participants: &[T],
     chat_id: i64,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
 ) -> anyhow::Result<()> {
     if !participants.is_empty() {
-        let registered_participants = memory.lock().await.get_participants(chat_id)?;
+        let registered_participants = database.lock().await.get_participants(chat_id)?;
 
         let registered_participants: HashSet<_> = registered_participants.into_iter().collect();
 
@@ -37,16 +37,16 @@ pub async fn validate_participants_exist<M: Memory, T: AsRef<str>>(
 }
 
 /// Verify that a group with the given name exists in the database.
-pub async fn validate_group_exists<M: Memory>(
+pub async fn validate_group_exists<D: Database>(
     group_name: &str,
     chat_id: i64,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
 ) -> anyhow::Result<()> {
     if group_name.trim().is_empty() {
         return Err(InputError::group_not_provided().into());
     }
 
-    let group_exists = memory.lock().await.group_exists(chat_id, group_name)?;
+    let group_exists = database.lock().await.group_exists(chat_id, group_name)?;
 
     if group_exists {
         Ok(())

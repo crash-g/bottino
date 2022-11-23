@@ -9,16 +9,16 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use crate::error::InputError;
-use crate::memory::Memory;
+use crate::database::Database;
 use crate::types::{ParsedExpense, ParsedParticipant};
 
 use super::validate_participants_exist;
 
 /// Check that groups do not have custom amount set and replace them with their members.
-pub async fn validate_and_resolve_groups<M: Memory>(
+pub async fn validate_and_resolve_groups<D: Database>(
     mut expense: ParsedExpense,
     chat_id: i64,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
 ) -> anyhow::Result<ParsedExpense> {
     for participant in &expense.participants {
         if participant.is_group() && participant.amount.is_some() {
@@ -30,7 +30,7 @@ pub async fn validate_and_resolve_groups<M: Memory>(
 
     for participant in expense.participants {
         if participant.is_group() {
-            let members = memory
+            let members = database
                 .lock()
                 .await
                 .get_group_members(chat_id, &participant.name)?;
@@ -64,10 +64,10 @@ pub async fn validate_and_resolve_groups<M: Memory>(
 /// - a creditor appears at most once with a custom amount
 /// - a debtor appears at most once with a custom amount
 /// - all participants exist in the database
-pub async fn validate_expense<M: Memory>(
+pub async fn validate_expense<D: Database>(
     expense: &ParsedExpense,
     chat_id: i64,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
 ) -> anyhow::Result<()> {
     at_least_one_participant(expense)?;
     at_least_one_creditor(expense)?;
@@ -75,7 +75,7 @@ pub async fn validate_expense<M: Memory>(
     total_fixed_debt_in_range(expense)?;
     no_duplicate_custom_amounts(expense)?;
 
-    all_participants_exist(expense, chat_id, memory).await?;
+    all_participants_exist(expense, chat_id, database).await?;
 
     Ok(())
 }
@@ -194,13 +194,13 @@ fn no_duplicate_custom_amounts(expense: &ParsedExpense) -> Result<(), InputError
     }
 }
 
-async fn all_participants_exist<M: Memory>(
+async fn all_participants_exist<D: Database>(
     expense: &ParsedExpense,
     chat_id: i64,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
 ) -> anyhow::Result<()> {
     let participants: Vec<_> = expense.participants.iter().map(|p| &p.name).collect();
-    validate_participants_exist(&participants, chat_id, memory).await?;
+    validate_participants_exist(&participants, chat_id, database).await?;
     Ok(())
 }
 

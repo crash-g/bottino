@@ -33,7 +33,7 @@ pub struct ParsedParticipant {
     is_group: bool,
 }
 
-/// An expense that is read from memory.
+/// An expense that is read from the database.
 #[derive(Clone, Debug)]
 pub struct SavedExpense {
     pub id: i64,
@@ -42,7 +42,7 @@ pub struct SavedExpense {
     pub message: Option<String>,
 }
 
-/// A participant to an expense that is read from memory.
+/// A participant to an expense that is read from the database.
 ///
 /// The `amount` is an optional custom amount for the
 /// participant. If the participant is a debtor, it corresponds to the money that the

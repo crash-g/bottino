@@ -24,9 +24,9 @@ use crate::{
 };
 use crate::{
     formatter::{format_balance, format_list_expenses, format_simple_list},
-    memory::sqlite::SqliteMemory,
+    database::sqlite::SqliteDatabase,
 };
-use crate::{memory::Memory, validator::validate_participants_exist};
+use crate::{database::Database, validator::validate_participants_exist};
 use crate::{
     parser::{parse_expense, parse_group_and_members, parse_participants},
     validator::validate_group_exists,
@@ -107,44 +107,44 @@ type HandlerResult = anyhow::Result<()>;
 
 // We would like to take this as parameter of dialogue_handler, but probably in Rust you
 // cannot pass a type as a parameter. So we define it as a type alias instead.
-// If the correct type of memory is not provided, the thread will panic at runtime during message
+// If the correct type of database is not provided, the thread will panic at runtime during message
 // handling.
-type MemoryInUse = Arc<Mutex<SqliteMemory>>;
+type DatabaseInUse = Arc<Mutex<SqliteDatabase>>;
 
 pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
     use dptree::case;
 
     let command_handler =
         teloxide::filter_command::<Command, _>().branch(case![State::Normal].endpoint(
-            |msg: Message, bot: Bot, cmd: Command, memory: MemoryInUse| async move {
+            |msg: Message, bot: Bot, cmd: Command, database: DatabaseInUse| async move {
                 let result = match cmd {
                     Command::Help => handle_help(&bot, &msg).await,
-                    Command::Expense(e) => handle_expense(&msg, &memory, &e).await,
-                    Command::E(e) => handle_expense(&msg, &memory, &e).await,
-                    Command::Balance => handle_balance(&bot, &msg, &memory).await,
-                    Command::Reset => handle_reset(&msg, &memory).await,
-                    Command::List(limit) => handle_list(&bot, &msg, &memory, &limit).await,
-                    Command::Delete(id) => handle_delete(&msg, &memory, &id).await,
-                    Command::AddParticipants(s) => handle_add_participants(&msg, &memory, &s).await,
+                    Command::Expense(e) => handle_expense(&msg, &database, &e).await,
+                    Command::E(e) => handle_expense(&msg, &database, &e).await,
+                    Command::Balance => handle_balance(&bot, &msg, &database).await,
+                    Command::Reset => handle_reset(&msg, &database).await,
+                    Command::List(limit) => handle_list(&bot, &msg, &database, &limit).await,
+                    Command::Delete(id) => handle_delete(&msg, &database, &id).await,
+                    Command::AddParticipants(s) => handle_add_participants(&msg, &database, &s).await,
                     Command::RemoveParticipants(s) => {
-                        handle_remove_participants(&msg, &memory, &s).await
+                        handle_remove_participants(&msg, &database, &s).await
                     }
                     Command::ListParticipants => {
-                        handle_list_participants(&bot, &msg, &memory).await
+                        handle_list_participants(&bot, &msg, &database).await
                     }
-                    Command::AddGroup(s) => handle_add_group(&msg, &memory, &s).await,
+                    Command::AddGroup(s) => handle_add_group(&msg, &database, &s).await,
                     Command::DeleteGroup(group_name) => {
-                        handle_delete_group(&msg, &memory, &group_name).await
+                        handle_delete_group(&msg, &database, &group_name).await
                     }
                     Command::AddGroupMembers(s) => {
-                        handle_add_group_members(&msg, &memory, &s).await
+                        handle_add_group_members(&msg, &database, &s).await
                     }
                     Command::RemoveGroupMembers(s) => {
-                        handle_remove_group_members(&msg, &memory, &s).await
+                        handle_remove_group_members(&msg, &database, &s).await
                     }
-                    Command::ListGroups => handle_list_groups(&bot, &msg, &memory).await,
+                    Command::ListGroups => handle_list_groups(&bot, &msg, &database).await,
                     Command::ListGroupMembers(group_name) => {
-                        handle_list_group_members(&bot, &msg, &memory, &group_name).await
+                        handle_list_group_members(&bot, &msg, &database, &group_name).await
                     }
                 };
 
@@ -179,9 +179,9 @@ async fn handle_help(bot: &Bot, msg: &Message) -> HandlerResult {
     Ok(())
 }
 
-async fn handle_expense<M: Memory>(
+async fn handle_expense<D: Database>(
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
     message: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
@@ -189,12 +189,12 @@ async fn handle_expense<M: Memory>(
 
     let expense = parse_expense(message).map_err(InputError::invalid_expense_syntax)?;
     let expense = expense.1;
-    let expense = validate_and_resolve_groups(expense, chat_id, memory).await?;
-    validate_expense(&expense, chat_id, memory).await?;
+    let expense = validate_and_resolve_groups(expense, chat_id, database).await?;
+    validate_expense(&expense, chat_id, database).await?;
 
     let expense = normalize_participants(expense);
 
-    memory
+    database
         .lock()
         .await
         .save_expense_with_message(chat_id, expense, message_ts)?;
@@ -232,14 +232,14 @@ fn normalize_participants(expense: ParsedExpense) -> ParsedExpense {
     )
 }
 
-async fn handle_balance<M: Memory>(
+async fn handle_balance<D: Database>(
     bot: &Bot,
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
 
-    let active_expenses = memory.lock().await.get_active_expenses(chat_id)?;
+    let active_expenses = database.lock().await.get_active_expenses(chat_id)?;
     let exchanges = compute_exchanges(active_expenses);
     let formatted_balance = format_balance(&exchanges);
 
@@ -250,17 +250,17 @@ async fn handle_balance<M: Memory>(
     Ok(())
 }
 
-async fn handle_reset<M: Memory>(msg: &Message, memory: &Arc<Mutex<M>>) -> HandlerResult {
+async fn handle_reset<D: Database>(msg: &Message, database: &Arc<Mutex<D>>) -> HandlerResult {
     let chat_id = msg.chat.id.0;
 
-    memory.lock().await.mark_all_as_settled(chat_id)?;
+    database.lock().await.mark_all_as_settled(chat_id)?;
     Ok(())
 }
 
-async fn handle_list<M: Memory>(
+async fn handle_list<D: Database>(
     bot: &Bot,
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
     limit: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
@@ -275,7 +275,7 @@ async fn handle_list<M: Memory>(
 
     // Considering how we run the query, it is not easy to use a LIMIT, so
     // we ask for everything and just slice the result.
-    let mut active_expenses = memory.lock().await.get_active_expenses(chat_id)?;
+    let mut active_expenses = database.lock().await.get_active_expenses(chat_id)?;
 
     active_expenses.sort_by(|e1, e2| {
         e2.id
@@ -293,9 +293,9 @@ async fn handle_list<M: Memory>(
     Ok(())
 }
 
-async fn handle_delete<M: Memory>(
+async fn handle_delete<D: Database>(
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
     expense_id: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
@@ -303,49 +303,49 @@ async fn handle_delete<M: Memory>(
         .parse()
         .map_err(|_| InputError::invalid_expense_id(expense_id.to_string()))?;
 
-    memory.lock().await.delete_expense(chat_id, expense_id)?;
+    database.lock().await.delete_expense(chat_id, expense_id)?;
     Ok(())
 }
 
-async fn handle_add_participants<M: Memory>(
+async fn handle_add_participants<D: Database>(
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     let participants = parse_participants(payload)?;
     validate_participant_names(&participants)?;
     debug!("Adding participants: {:#?}", participants);
-    memory
+    database
         .lock()
         .await
         .add_participants_if_not_exist(chat_id, &participants)?;
     Ok(())
 }
 
-async fn handle_remove_participants<M: Memory>(
+async fn handle_remove_participants<D: Database>(
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     let participants = parse_participants(payload)?;
     validate_participant_names(&participants)?;
     debug!("Removing participants: {:#?}", participants);
-    memory
+    database
         .lock()
         .await
         .remove_participants_if_exist(chat_id, &participants)?;
     Ok(())
 }
 
-async fn handle_list_participants<M: Memory>(
+async fn handle_list_participants<D: Database>(
     bot: &Bot,
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let participants = memory.lock().await.get_participants(chat_id)?;
+    let participants = database.lock().await.get_participants(chat_id)?;
 
     let result = format_simple_list(&participants);
 
@@ -356,9 +356,9 @@ async fn handle_list_participants<M: Memory>(
     Ok(())
 }
 
-async fn handle_add_group<M: Memory>(
+async fn handle_add_group<D: Database>(
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
@@ -370,15 +370,15 @@ async fn handle_add_group<M: Memory>(
         members
     );
 
-    validate_participants_exist(&members, chat_id, memory).await?;
+    validate_participants_exist(&members, chat_id, database).await?;
 
-    memory
+    database
         .lock()
         .await
         .create_group_if_not_exists(chat_id, &group_name)?;
 
     if !members.is_empty() {
-        memory
+        database
             .lock()
             .await
             .add_group_members_if_not_exist(chat_id, &group_name, &members)?;
@@ -386,18 +386,18 @@ async fn handle_add_group<M: Memory>(
     Ok(())
 }
 
-async fn handle_delete_group<M: Memory>(
+async fn handle_delete_group<D: Database>(
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     validate_group_name(group_name)?;
     info!("Deleting group named {group_name}");
 
-    validate_group_exists(group_name, chat_id, memory).await?;
+    validate_group_exists(group_name, chat_id, database).await?;
 
-    memory
+    database
         .lock()
         .await
         .delete_group_if_exists(chat_id, group_name)?;
@@ -405,9 +405,9 @@ async fn handle_delete_group<M: Memory>(
     Ok(())
 }
 
-async fn handle_add_group_members<M: Memory>(
+async fn handle_add_group_members<D: Database>(
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
@@ -419,10 +419,10 @@ async fn handle_add_group_members<M: Memory>(
         members
     );
 
-    validate_group_exists(&group_name, chat_id, memory).await?;
-    validate_participants_exist(&members, chat_id, memory).await?;
+    validate_group_exists(&group_name, chat_id, database).await?;
+    validate_participants_exist(&members, chat_id, database).await?;
 
-    memory
+    database
         .lock()
         .await
         .add_group_members_if_not_exist(chat_id, &group_name, &members)?;
@@ -430,9 +430,9 @@ async fn handle_add_group_members<M: Memory>(
     Ok(())
 }
 
-async fn handle_remove_group_members<M: Memory>(
+async fn handle_remove_group_members<D: Database>(
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
@@ -444,10 +444,10 @@ async fn handle_remove_group_members<M: Memory>(
         members
     );
 
-    validate_group_exists(&group_name, chat_id, memory).await?;
-    validate_participants_exist(&members, chat_id, memory).await?;
+    validate_group_exists(&group_name, chat_id, database).await?;
+    validate_participants_exist(&members, chat_id, database).await?;
 
-    memory
+    database
         .lock()
         .await
         .remove_group_members_if_exist(chat_id, &group_name, &members)?;
@@ -455,13 +455,13 @@ async fn handle_remove_group_members<M: Memory>(
     Ok(())
 }
 
-async fn handle_list_groups<M: Memory>(
+async fn handle_list_groups<D: Database>(
     bot: &Bot,
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let groups = memory.lock().await.get_groups(chat_id)?;
+    let groups = database.lock().await.get_groups(chat_id)?;
 
     let result = format_simple_list(&groups);
 
@@ -472,19 +472,19 @@ async fn handle_list_groups<M: Memory>(
     Ok(())
 }
 
-async fn handle_list_group_members<M: Memory>(
+async fn handle_list_group_members<D: Database>(
     bot: &Bot,
     msg: &Message,
-    memory: &Arc<Mutex<M>>,
+    database: &Arc<Mutex<D>>,
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     validate_group_name(group_name)?;
     debug!("Listing all members of group: {group_name}");
 
-    validate_group_exists(group_name, chat_id, memory).await?;
+    validate_group_exists(group_name, chat_id, database).await?;
 
-    let members = memory.lock().await.get_group_members(chat_id, group_name)?;
+    let members = database.lock().await.get_group_members(chat_id, group_name)?;
 
     let result = format_simple_list(&members);
     bot.send_message(msg.chat.id, result)
