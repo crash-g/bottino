@@ -266,13 +266,13 @@ mod tests {
             ParsedParticipant::new_debtor("b", Some(3)),
             ParsedParticipant::new_debtor("a", Some(2)),
         ];
-        assert_eq!(true, are_all_debtors_fixed(&participants));
+        assert_eq!(are_all_debtors_fixed(&participants));
 
         let participants = vec![
             ParsedParticipant::new_creditor("a", Some(3)),
             ParsedParticipant::new_debtor("b", Some(3)),
         ];
-        assert_eq!(false, are_all_debtors_fixed(&participants));
+        assert_eq!(!are_all_debtors_fixed(&participants));
 
         let participants = vec![
             ParsedParticipant::new_creditor("a", Some(3)),
@@ -280,7 +280,7 @@ mod tests {
             ParsedParticipant::new_debtor("a", Some(2)),
             ParsedParticipant::new_debtor("c", None),
         ];
-        assert_eq!(false, are_all_debtors_fixed(&participants));
+        assert_eq!(!are_all_debtors_fixed(&participants));
     }
 
     #[test]

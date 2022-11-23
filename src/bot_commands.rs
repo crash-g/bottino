@@ -19,7 +19,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     bot_logic::compute_exchanges,
-    error::{InputError, TelegramError},
+    error::{DatabaseError, InputError, TelegramError},
     validator::{validate_group_name, validate_participant_names},
 };
 use crate::{
@@ -157,8 +157,14 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                 if let Err(e) = result {
                     if let Some(e) = e.downcast_ref::<InputError>() {
                         debug!("InputError: {:#?}", e);
+                    } else if let Some(e) = e.downcast_ref::<DatabaseError>() {
+                        if e.is_concurrency_error() {
+                            debug!("Concurrency error: {:#?}", e);
+                        } else {
+                            error!("Database error: {:#?}", e);
+                        }
                     } else {
-                        error!("An error occurred: {:#?}", e);
+                        error!("Error: {:#?}", e);
                     }
                     if let Err(e) = bot.send_message(msg.chat.id, format!("{e}")).await {
                         error!("Cannot send error message: {:#?}", e);

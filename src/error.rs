@@ -94,14 +94,17 @@ impl InputError {
 }
 
 #[derive(Error, Debug)]
-#[error("{message}: {source}")]
-pub struct DatabaseError {
-    message: String,
-    source: anyhow::Error,
+#[error("Cannot query the database, please try again later.")]
+pub enum DatabaseError {
+    CommunicationError {
+        message: String,
+        source: anyhow::Error,
+    },
+    ConcurrencyError(String),
 }
 
 #[derive(Error, Debug)]
-#[error("{message}: {source}")]
+#[error("Cannot communicate with Telegram server, please try again later.")]
 pub struct TelegramError {
     message: String,
     source: teloxide::RequestError,
@@ -109,10 +112,18 @@ pub struct TelegramError {
 
 impl DatabaseError {
     pub fn new<T: AsRef<str>>(message: T, e: anyhow::Error) -> Self {
-        DatabaseError {
+        DatabaseError::CommunicationError {
             message: message.as_ref().to_string(),
             source: e,
         }
+    }
+
+    pub fn concurrency<T: AsRef<str>>(message: T) -> Self {
+        DatabaseError::ConcurrencyError(message.as_ref().to_string())
+    }
+
+    pub fn is_concurrency_error(&self) -> bool {
+        matches!(self, DatabaseError::ConcurrencyError(_))
     }
 }
 

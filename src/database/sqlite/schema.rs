@@ -2,7 +2,9 @@ const CREATE_PARTICIPANT_TABLE: &str = "CREATE TABLE IF NOT EXISTS participant (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   chat_id INTEGER NOT NULL,
   name TEXT NOT NULL,
-  UNIQUE(chat_id, name)
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at DATETIME,
+  UNIQUE(chat_id, name, deleted_at)
 )";
 
 const CREATE_EXPENSE_TABLE: &str = "CREATE TABLE IF NOT EXISTS expense (
@@ -28,7 +30,9 @@ const CREATE_GROUP_TABLE: &str = "CREATE TABLE IF NOT EXISTS participant_group (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   chat_id INTEGER NOT NULL,
   name TEXT NOT NULL UNIQUE,
-  UNIQUE(chat_id, name)
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at DATETIME,
+  UNIQUE(chat_id, name, deleted_at)
 )";
 
 const CREATE_GROUP_MEMBER_TABLE: &str = "CREATE TABLE IF NOT EXISTS group_member (
