@@ -17,7 +17,8 @@ where it is started.
 
 ## TODO list
 
-- add autoregister mode (?)
+- solve bug of insert or ignore non working with unique clause on multiple columns
+- solve bug of auto register flag which stays ENABLED for three times when not set
 - add aliases
 - add interactive mode to delete expense (?)
 - add interactive mode to list expenses (?)
