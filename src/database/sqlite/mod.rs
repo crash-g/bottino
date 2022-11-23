@@ -3,7 +3,7 @@
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
 use log::debug;
-use rusqlite::{params, CachedStatement, Connection, OptionalExtension, Params};
+use rusqlite::{params, Connection, OptionalExtension};
 use std::collections::HashMap;
 use tokio::task::block_in_place;
 
@@ -91,14 +91,26 @@ impl Database for SqliteDatabase {
 
     fn get_active_expenses(&self, chat_id: i64) -> DatabaseResult<Vec<SavedExpense>> {
         let fn_impl = || {
-            let stmt = self.connection.prepare_cached(
+            let mut stmt = self.connection.prepare_cached(
                 "SELECT e.id, e.amount, e.message, p.name, ep.is_creditor, ep.amount FROM expense e
                  INNER JOIN expense_participant ep ON e.id = ep.expense_id
                  INNER JOIN participant p ON ep.participant_id = p.id
                  WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL",
             )?;
 
-            query_active_expenses(stmt, &[(":chat_id", &chat_id)])
+            let expense_iter = stmt.query_map(&[(":chat_id", &chat_id)], |row| {
+                Ok(ActiveExpenseQuery {
+                    id: row.get(0)?,
+                    e_amount: row.get(1)?,
+                    e_message: row.get(2)?,
+                    p_name: row.get(3)?,
+                    p_is_creditor: row.get(4)?,
+                    p_amount: row.get(5)?,
+                })
+            })?;
+
+            let expenses: Result<Vec<_>, _> = expense_iter.collect();
+            Ok(parse_active_expenses_query(expenses?))
         };
 
         block_in_place(|| {
@@ -106,31 +118,23 @@ impl Database for SqliteDatabase {
         })
     }
 
-    /// The current implementation of this function applies the limit to the number of participants,
-    /// while it should apply it to the number of expenses. It is still left here because we could
-    /// improve it in the future, but better not to use it for now.
     fn get_active_expenses_with_limit(
         &self,
         chat_id: i64,
         limit: usize,
     ) -> DatabaseResult<Vec<SavedExpense>> {
-        let fn_impl = || {
-            let stmt = self.connection.prepare_cached(
-                "SELECT e.id, e.amount, e.message, p.name, ep.is_creditor, ep.amount FROM expense e
-                 INNER JOIN expense_participant ep ON e.id = p.expense_id
-                 INNER JOIN participant p ON ep.participant_id = p.id
-                 WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL
-                 ORDER BY created_at DESC
-                 LIMIT :limit",
-            )?;
+        // It's sort of complex to run the query with a limit, so for now
+        // we ask for everything and just slice the result.
 
-            let limit = limit as i64;
-            query_active_expenses(stmt, &[(":chat_id", &chat_id), (":limit", &limit)])
-        };
+        let mut all_expenses = self.get_active_expenses(chat_id)?;
 
-        block_in_place(|| {
-            fn_impl().map_err(|e| DatabaseError::new("cannot get active expenses with limit", e))
-        })
+        all_expenses.sort_by(|e1, e2| {
+            e2.id
+                .partial_cmp(&e1.id)
+                .expect("cannot sort active expenses")
+        });
+        let limit = std::cmp::min(limit, all_expenses.len());
+        Ok(all_expenses[0..limit].to_vec())
     }
 
     fn mark_all_as_settled(&self, chat_id: i64) -> DatabaseResult<()> {
@@ -445,27 +449,6 @@ impl Database for SqliteDatabase {
 
         block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot get group members", e)))
     }
-}
-
-fn query_active_expenses(
-    mut statement: CachedStatement,
-    params: impl Params,
-) -> anyhow::Result<Vec<SavedExpense>> {
-    let expense_iter = statement
-        .query_map(params, |row| {
-            Ok(ActiveExpenseQuery {
-                id: row.get(0)?,
-                e_amount: row.get(1)?,
-                e_message: row.get(2)?,
-                p_name: row.get(3)?,
-                p_is_creditor: row.get(4)?,
-                p_amount: row.get(5)?,
-            })
-        })
-        .with_context(|| "Query to get active expenses failed")?;
-
-    let expenses: Result<Vec<_>, _> = expense_iter.collect();
-    Ok(parse_active_expenses_query(expenses?))
 }
 
 fn parse_active_expenses_query(expenses: Vec<ActiveExpenseQuery>) -> Vec<SavedExpense> {

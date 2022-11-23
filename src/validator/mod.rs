@@ -10,8 +10,8 @@ use tokio::sync::Mutex;
 
 mod expense;
 
-use crate::error::InputError;
 use crate::database::Database;
+use crate::error::InputError;
 pub use expense::{validate_and_resolve_groups, validate_expense};
 
 /// Check that all participants provided by the user exist in the database.

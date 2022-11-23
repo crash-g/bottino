@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::error::InputError;
 use crate::database::Database;
+use crate::error::InputError;
 use crate::types::{ParsedExpense, ParsedParticipant};
 
 use super::validate_participants_exist;
