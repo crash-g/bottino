@@ -1,12 +1,4 @@
-use teloxide::RequestError;
 use thiserror::Error;
-
-#[derive(Error)]
-#[error("An error occurred: {user_message}")]
-pub struct BotError {
-    message: String,
-    user_message: String,
-}
 
 #[derive(Error, Debug)]
 pub enum InputError {
@@ -101,29 +93,34 @@ impl InputError {
     }
 }
 
-impl BotError {
-    pub fn database(message: &str, e: anyhow::Error) -> Self {
-        let message = format!("{message}: {e}");
-        let user_message = "cannot query the database, please try again later".to_string();
-        BotError {
-            message,
-            user_message,
-        }
-    }
+#[derive(Error, Debug)]
+#[error("{message}: {source}")]
+pub struct DatabaseError {
+    message: String,
+    source: anyhow::Error,
+}
 
-    pub fn telegram(message: &str, e: RequestError) -> Self {
-        let message = format!("{message}: {e}");
-        let user_message =
-            "cannot communicate with Telegram server, please try again later".to_string();
-        BotError {
-            message,
-            user_message,
+#[derive(Error, Debug)]
+#[error("{message}: {source}")]
+pub struct TelegramError {
+    message: String,
+    source: teloxide::RequestError,
+}
+
+impl DatabaseError {
+    pub fn new<T: AsRef<str>>(message: T, e: anyhow::Error) -> Self {
+        DatabaseError {
+            message: message.as_ref().to_string(),
+            source: e,
         }
     }
 }
 
-impl std::fmt::Debug for BotError {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.message)
+impl TelegramError {
+    pub fn new<T: AsRef<str>>(message: T, e: teloxide::RequestError) -> Self {
+        TelegramError {
+            message: message.as_ref().to_string(),
+            source: e,
+        }
     }
 }

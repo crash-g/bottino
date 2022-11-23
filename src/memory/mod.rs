@@ -2,7 +2,12 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::types::{ParsedExpense, SavedExpense};
+use crate::{
+    error::DatabaseError,
+    types::{ParsedExpense, SavedExpense},
+};
+
+type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub mod sqlite;
 
@@ -17,13 +22,13 @@ pub trait Memory {
         chat_id: i64,
         expense: ParsedExpense,
         message_ts: DateTime<Utc>,
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), DatabaseError>;
 
     /// Get the list of all active expenses.
     ///
     /// An expense is active if it is neither settled nor deleted. Each returned expense
     /// must have a unique ID, that can be used to delete it.
-    fn get_active_expenses(&self, chat_id: i64) -> anyhow::Result<Vec<SavedExpense>>;
+    fn get_active_expenses(&self, chat_id: i64) -> Result<Vec<SavedExpense>, DatabaseError>;
 
     /// Get the latest active expenses, restricting the list by the given *limit*.
     ///
@@ -33,20 +38,20 @@ pub trait Memory {
         &self,
         chat_id: i64,
         limit: usize,
-    ) -> anyhow::Result<Vec<SavedExpense>>;
+    ) -> Result<Vec<SavedExpense>, DatabaseError>;
 
     /// Mark all active expenses as settled.
     ///
     /// An expense is active if it is neither settled nor deleted. The actual implementation
     /// could actually delete the expenses, since there is no requirement to be able to
     /// retrieve them later.
-    fn mark_all_as_settled(&self, chat_id: i64) -> anyhow::Result<()>;
+    fn mark_all_as_settled(&self, chat_id: i64) -> Result<(), DatabaseError>;
 
     /// Delete the expense with the given *expense_id*.
     ///
     /// The actual implementation could delete the expense or just mark it as deleted. The
     /// only requirement is that it does not show as active later on.
-    fn delete_expense(&self, chat_id: i64, expense_id: i64) -> anyhow::Result<()>;
+    fn delete_expense(&self, chat_id: i64, expense_id: i64) -> Result<(), DatabaseError>;
 
     /// Add participants to the given chat.
     ///
@@ -55,7 +60,7 @@ pub trait Memory {
         &mut self,
         chat_id: i64,
         participants: &[T],
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), DatabaseError>;
 
     /// Remove participants from the given chat.
     ///
@@ -65,20 +70,28 @@ pub trait Memory {
         &mut self,
         chat_id: i64,
         participants: &[T],
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), DatabaseError>;
 
     /// Get the list of all participants in the given chat.
-    fn get_participants(&self, chat_id: i64) -> anyhow::Result<Vec<String>>;
+    fn get_participants(&self, chat_id: i64) -> Result<Vec<String>, DatabaseError>;
 
     /// Create a group with the given *group_name*.
     ///
     /// If the group already exists, it is a no-op.
-    fn create_group_if_not_exists(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()>;
+    fn create_group_if_not_exists(
+        &mut self,
+        chat_id: i64,
+        group_name: &str,
+    ) -> Result<(), DatabaseError>;
 
     /// Delete a group with the given *group_name*.
     ///
     /// If the group does not exist, it is a no-op.
-    fn delete_group_if_exists(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()>;
+    fn delete_group_if_exists(
+        &mut self,
+        chat_id: i64,
+        group_name: &str,
+    ) -> Result<(), DatabaseError>;
 
     /// Add the given members to a group.
     ///
@@ -89,7 +102,7 @@ pub trait Memory {
         chat_id: i64,
         group_name: &str,
         members: &[T],
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), DatabaseError>;
 
     /// Remove the given members from a group.
     ///
@@ -100,16 +113,20 @@ pub trait Memory {
         chat_id: i64,
         group_name: &str,
         members: &[T],
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), DatabaseError>;
 
     /// Get the list of all groups.
-    fn get_groups(&self, chat_id: i64) -> anyhow::Result<Vec<String>>;
+    fn get_groups(&self, chat_id: i64) -> Result<Vec<String>, DatabaseError>;
 
     /// Check if a group with the given *group_name* exists.
-    fn group_exists(&self, chat_id: i64, group_name: &str) -> anyhow::Result<bool>;
+    fn group_exists(&self, chat_id: i64, group_name: &str) -> Result<bool, DatabaseError>;
 
     /// Get the list of members of a group.
     ///
     /// If the group does not exist, an error is returned.
-    fn get_group_members(&self, chat_id: i64, group_name: &str) -> anyhow::Result<Vec<String>>;
+    fn get_group_members(
+        &self,
+        chat_id: i64,
+        group_name: &str,
+    ) -> Result<Vec<String>, DatabaseError>;
 }
