@@ -38,7 +38,9 @@ const CREATE_GROUP_TABLE: &str = "CREATE TABLE IF NOT EXISTS participant_group (
 const CREATE_GROUP_MEMBER_TABLE: &str = "CREATE TABLE IF NOT EXISTS group_member (
   group_id INTEGER NOT NULL,
   participant_id INTEGER NOT NULL,
-  UNIQUE(group_id, participant_id)
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at DATETIME,
+  UNIQUE(group_id, participant_id, deleted_at)
 )";
 
 pub fn create_all_tables(connection: &rusqlite::Connection) -> anyhow::Result<()> {
