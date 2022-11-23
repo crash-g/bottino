@@ -15,18 +15,18 @@ The bot supports the following commands:
 
 **commands to manage participants**:
 
-- `/addparticipants`: add participants that can be used as creditors or debtors in expenses
-- `/removeparticipants`: remove participants that should not appear in expenses anymore
-- `/listparticipants`: return the list of all registered participants
+- `/addparticipants` or `/ap`: add participants that can be used as creditors or debtors in expenses
+- `/removeparticipants` or `/rp`: remove participants that should not appear in expenses anymore
+- `/listparticipants` or `/lp`: return the list of all registered participants
 
 **commands to manage groups**:
 
-- `/addgroup`: create a group of participants
-- `/deletegroup`: delete a group of participants
-- `/addgroupmembers`: add members to a group
-- `/removegroupmembers`: remove members from a group
-- `/listgroups`: return the list of all existing groups
-- `/listgroupmembers`: return the list of all members of a given group
+- `/addgroup` or `/ag`: create a group of participants
+- `/deletegroup` or `/dg`: delete a group of participants
+- `/addgroupmembers` or `/agm`: add members to a group
+- `/removegroupmembers` or `/rgm`: remove members from a group
+- `/listgroups` or `/lg`: return the list of all existing groups
+- `/listgroupmembers` or `/lgm`: return the list of all members of a given group
 
 Some commands accept no arguments, other require a string. In general, the bot does not answer to
 commands unless required or an error has occurred.
@@ -164,10 +164,6 @@ debtors: even if there are participants who are both in `g2` and `g3` the expens
 
 In fact, a participant can appear many times and will only count once. However, **a participant can
 only appear once with a custom amount**.
-
-## E
-
-This is just a shortcut for `/expense`.
 
 ## Balance
 
