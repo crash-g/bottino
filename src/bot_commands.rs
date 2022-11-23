@@ -172,18 +172,21 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                 // - send a message to the user
                 if let Err(e) = result {
                     if let Some(e) = e.downcast_ref::<InputError>() {
-                        debug!("InputError: {:#?}", e);
+                        debug!("InputError in chat {}: {:#?}", msg.chat.id.0, e);
                     } else if let Some(e) = e.downcast_ref::<DatabaseError>() {
                         if e.is_concurrency_error() {
-                            debug!("Concurrency error: {:#?}", e);
+                            debug!("Concurrency error in chat {}: {:#?}", msg.chat.id.0, e);
                         } else {
-                            error!("Database error: {:#?}", e);
+                            error!("Database error in chat {}: {:#?}", msg.chat.id.0, e);
                         }
                     } else {
-                        error!("Error: {:#?}", e);
+                        error!("Error in chat {}: {:#?}", msg.chat.id.0, e);
                     }
                     if let Err(e) = bot.send_message(msg.chat.id, format!("{e}")).await {
-                        error!("Cannot send error message: {:#?}", e);
+                        error!(
+                            "Cannot send error message in chat {}: {:#?}",
+                            msg.chat.id.0, e
+                        );
                     }
                 }
 
