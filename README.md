@@ -17,9 +17,8 @@ where it is started.
 
 ## TODO list
 
-- solve bug of insert or ignore non working with unique clause on multiple columns
-- solve bug of auto register flag which stays ENABLED for three times when not set
 - add aliases
+- turn foreign keys on with `PRAGMA foreign_keys = ON;` (?)
 - add interactive mode to delete expense (?)
 - add interactive mode to list expenses (?)
 - add interactive mode to register expense (?)
@@ -29,6 +28,7 @@ where it is started.
 
 - [Telegram bot library](https://crates.io/crates/teloxide)
 - [SQLite instructions](https://rust-lang-nursery.github.io/rust-cookbook/database/sqlite.html)
+- [SQLite NULL handling](https://www.sqlite.org/nulls.html)
 - [nom combinators](https://github.com/Geal/nom/blob/main/doc/choosing_a_combinator.md)
 - [format! options](https://doc.rust-lang.org/std/fmt/)
 
