@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use log::debug;
 use rusqlite::{params, Connection, OptionalExtension};
-use std::collections::HashMap;
+use std::{collections::HashMap, path::Path};
 use tokio::task::block_in_place;
 
 use crate::{
@@ -20,9 +20,9 @@ pub struct SqliteDatabase {
 }
 
 impl SqliteDatabase {
-    pub fn new() -> DatabaseResult<SqliteDatabase> {
+    pub fn new<P: AsRef<Path>>(path: P) -> DatabaseResult<SqliteDatabase> {
         block_in_place(|| {
-            let connection = Connection::open("treasurer.db")
+            let connection = Connection::open(path)
                 .map_err(|e| DatabaseError::new("cannot open database", e.into()))?;
             schema::create_all_tables(&connection)
                 .map_err(|e| DatabaseError::new("cannot create tables", e))?;
@@ -287,7 +287,7 @@ impl Database for SqliteDatabase {
             {
                 let mut get_participant_id_stmt = tx.prepare_cached(
                     "SELECT id FROM participant
-                     WHERE chat_id = :chat_id AND name = :member AND deleted_at IS NULL"
+                     WHERE chat_id = :chat_id AND name = :member AND deleted_at IS NULL",
                 )?;
 
                 // We cannot use INSERT OR IGNORE because our UNIQUE constraint includes a nullable column,
@@ -302,16 +302,12 @@ impl Database for SqliteDatabase {
                     // TODO: here we run two queries per member, it would be nice to optimize it,
                     // but can we do it considering the restrictions on UPSERT and IN-clause?
 
-                    let participant_id: Option<i64> = get_participant_id_stmt.query_row(
-                        params![&chat_id, &member.as_ref()],
-                        |row| row.get(0),
-                    ).optional()?;
+                    let participant_id: Option<i64> = get_participant_id_stmt
+                        .query_row(params![&chat_id, &member.as_ref()], |row| row.get(0))
+                        .optional()?;
 
                     if let Some(participant_id) = participant_id {
-                        insert_member_stmt.execute(params![
-                            &group_id,
-                            &participant_id
-                        ])?;
+                        insert_member_stmt.execute(params![&group_id, &participant_id])?;
                     } else {
                         return Err(
                             DatabaseError::concurrency("the participant was not found").into()
@@ -520,7 +516,98 @@ fn map_error<T: AsRef<str>>(message: T, e: anyhow::Error) -> DatabaseError {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
+    use tempdir::TempDir;
+
     use super::*;
+
+    fn temp_database() -> anyhow::Result<(SqliteDatabase, TempDir)> {
+        let tmp_dir = TempDir::new("treasurer")?;
+        println!("Temporary directory is: {:#?}", tmp_dir);
+
+        let file_path = tmp_dir.path().join("treasurer.db");
+        let database = SqliteDatabase::new(file_path)?;
+        Ok((database, tmp_dir))
+    }
+
+    fn to_hash_set<S: AsRef<str>>(v: Vec<S>) -> HashSet<String> {
+        v.into_iter().map(|s| s.as_ref().to_string()).collect()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_add_participants() -> anyhow::Result<()> {
+        let (mut database, _tmp_dir) = temp_database()?;
+
+        let chat_id = 1;
+
+        let participants = vec!["aa", "bb"];
+        database.add_participants_if_not_exist(chat_id, &participants)?;
+
+        let saved_participants = database.get_participants(chat_id)?;
+        assert_eq!(2, saved_participants.len());
+        assert_eq!(to_hash_set(participants), to_hash_set(saved_participants));
+
+        // Now add duplicates.
+
+        let participants = &["aa", "cc"];
+        database.add_participants_if_not_exist(chat_id, participants)?;
+
+        let mut stmt = database
+            .connection
+            .prepare("SELECT name FROM participant WHERE chat_id = :chat_id")?;
+
+        let iter = stmt.query_map(params![&chat_id], |row| row.get(0))?;
+
+        let saved_participants: Vec<String> = iter.collect::<Result<_, _>>()?;
+        assert_eq!(3, saved_participants.len());
+        assert_eq!(
+            to_hash_set(vec!["aa", "bb", "cc"]),
+            to_hash_set(saved_participants)
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[ignore]
+    fn test_add_groups() -> anyhow::Result<()> {
+        let (mut database, _tmp_dir) = temp_database()?;
+
+        let chat_id = 1;
+
+        let participants = &["aa", "bb", "cc", "dd", "ee"];
+        database.add_participants_if_not_exist(chat_id, participants)?;
+
+        let group1 = "all";
+        database.create_group_if_not_exists(chat_id, group1)?;
+        database.add_group_members_if_not_exist(chat_id, group1, &["aa", "bb"])?;
+
+        let group2 = "g2";
+        database.create_group_if_not_exists(chat_id, group2)?;
+
+        assert_eq!(
+            to_hash_set(vec!["all", "g2"]),
+            to_hash_set(database.get_groups(chat_id)?)
+        );
+
+        database.add_group_members_if_not_exist(chat_id, group2, &["cc", "bb", "ee", "dd"])?;
+        database.add_group_members_if_not_exist(chat_id, group1, &["bb", "dd"])?;
+
+        database.remove_group_members_if_exist(chat_id, group2, &["dd"])?;
+        database.remove_participants_if_exist(chat_id, &["aa", "cc"])?;
+
+        let all_members = database.get_group_members(chat_id, "all")?;
+        assert_eq!(2, all_members.len());
+        assert_eq!(to_hash_set(vec!["bb", "dd"]), to_hash_set(all_members));
+
+        let g2_members = database.get_group_members(chat_id, group2)?;
+        assert_eq!(2, g2_members.len());
+        assert_eq!(to_hash_set(vec!["ee", "bb"]), to_hash_set(g2_members));
+
+        Ok(())
+    }
 
     #[test]
     fn test_conversion() {

@@ -19,3 +19,6 @@ thiserror = "1.0.37"
 
 [profile.release]
 lto = true
+
+[dev-dependencies]
+tempdir = "0.3.7"
