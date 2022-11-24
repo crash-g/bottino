@@ -95,10 +95,10 @@ enum Command {
     AddGroup(String),
     #[command(description = "shortcut for the /addgroup command")]
     Ag(String),
-    #[command(description = "/deletegroup group_name deletes a group, no questions asked.")]
-    DeleteGroup(String),
-    #[command(description = "shortcut for the /deletegroup command")]
-    Dg(String),
+    #[command(description = "/removegroup group_name removes a group, no questions asked.")]
+    RemoveGroup(String),
+    #[command(description = "shortcut for the /removegroup command")]
+    Rg(String),
     #[command(
         description = "/addgroupmembers group_name member1 member2 adds two members to a group if not already present."
     )]
@@ -158,8 +158,8 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                     }
                     ListParticipants | Lp => handle_list_participants(&bot, &msg, &database).await,
                     AddGroup(s) | Ag(s) => handle_add_group(&msg, &database, &s).await,
-                    DeleteGroup(group_name) | Dg(group_name) => {
-                        handle_delete_group(&msg, &database, &group_name).await
+                    RemoveGroup(group_name) | Rg(group_name) => {
+                        handle_remove_group(&msg, &database, &group_name).await
                     }
                     AddGroupMembers(s) | Agm(s) => {
                         handle_add_group_members(&msg, &database, &s).await
@@ -414,7 +414,7 @@ async fn handle_add_group<D: Database>(
     database
         .lock()
         .await
-        .create_group_if_not_exists(chat_id, &group_name)?;
+        .add_group_if_not_exists(chat_id, &group_name)?;
 
     if !members.is_empty() {
         database
@@ -425,21 +425,21 @@ async fn handle_add_group<D: Database>(
     Ok(())
 }
 
-async fn handle_delete_group<D: Database>(
+async fn handle_remove_group<D: Database>(
     msg: &Message,
     database: &Arc<Mutex<D>>,
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     validate_group_name(group_name)?;
-    info!("Deleting group named {group_name}");
+    info!("Removing group named {group_name}");
 
     validate_group_exists(group_name, chat_id, database).await?;
 
     database
         .lock()
         .await
-        .delete_group_if_exists(chat_id, group_name)?;
+        .remove_group_if_exists(chat_id, group_name)?;
 
     Ok(())
 }
