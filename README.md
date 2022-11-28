@@ -17,7 +17,7 @@ where it is started.
 
 ## TODO list
 
-- add aliases
+- add aliases (only available in expenses, not when managing groups)
 - turn foreign keys on with `PRAGMA foreign_keys = ON;` (?)
 - add interactive mode to delete expense (?)
 - add interactive mode to list expenses (?)

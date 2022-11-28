@@ -5,7 +5,7 @@ use std::{
     sync::Arc,
 };
 
-use log::{debug, error, info};
+use log::{debug, error};
 use teloxide::{
     dispatching::{
         dialogue::{self, InMemStorage},
@@ -157,7 +157,7 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                         handle_remove_participants(&msg, &database, &s).await
                     }
                     ListParticipants | Lp => handle_list_participants(&bot, &msg, &database).await,
-                    AddGroup(s) | Ag(s) => handle_add_group(&msg, &database, &s).await,
+                    AddGroup(group_name) | Ag(group_name) => handle_add_group(&msg, &database, &group_name).await,
                     RemoveGroup(group_name) | Rg(group_name) => {
                         handle_remove_group(&msg, &database, &group_name).await
                     }
@@ -398,30 +398,17 @@ async fn handle_list_participants<D: Database>(
 async fn handle_add_group<D: Database>(
     msg: &Message,
     database: &Arc<Mutex<D>>,
-    payload: &str,
+    group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let (group_name, members) = parse_group_and_members(payload)?;
-    validate_group_name(&group_name)?;
-    validate_participant_names(&members)?;
-    debug!(
-        "Creating group named {group_name} with members: {:#?}",
-        members
-    );
-
-    validate_participants_exist(&members, chat_id, database).await?;
+    validate_group_name(group_name)?;
+    debug!("Creating group named {group_name}");
 
     database
         .lock()
         .await
-        .add_group_if_not_exists(chat_id, &group_name)?;
+        .add_group_if_not_exists(chat_id, group_name)?;
 
-    if !members.is_empty() {
-        database
-            .lock()
-            .await
-            .add_group_members_if_not_exist(chat_id, &group_name, &members)?;
-    }
     Ok(())
 }
 
@@ -432,7 +419,7 @@ async fn handle_remove_group<D: Database>(
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     validate_group_name(group_name)?;
-    info!("Removing group named {group_name}");
+    debug!("Removing group named {group_name}");
 
     validate_group_exists(group_name, chat_id, database).await?;
 
