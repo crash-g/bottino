@@ -371,6 +371,9 @@ async fn handle_remove_participants<D: Database>(
     let participants = parse_participants(payload)?;
     validate_participant_names(&participants)?;
     debug!("Removing participants: {:#?}", participants);
+
+    validate_participants_exist(&participants, chat_id, database).await?;
+
     database
         .lock()
         .await

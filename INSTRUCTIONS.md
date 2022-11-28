@@ -228,7 +228,7 @@ Examples:
 Participants that are no longer needed can be removed with this command.
 
 The syntax is the same as the syntax of the command to add participants (there must be at least one
-participant). If one or more participants do not exist, they are silently ignored.
+participant). If one or more participants do not exist, an error message is returned.
 
 If the participant is part of outstanding expenses, it is not removed from them. If needed, these
 expenses must be manually deleted.
