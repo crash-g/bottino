@@ -12,7 +12,7 @@ mod expense;
 
 use crate::database::Database;
 use crate::error::InputError;
-pub use expense::{validate_and_resolve_groups, validate_expense};
+pub use expense::{validate_expense, validate_groups};
 
 /// Check that all participants provided by the user exist in the database.
 pub async fn validate_participants_exist<D: Database, T: AsRef<str>>(

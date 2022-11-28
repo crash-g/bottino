@@ -238,6 +238,33 @@ impl Database for SqliteDatabase {
         block_in_place(|| fn_impl().map_err(|e| map_error("cannot get participants", e)))
     }
 
+    fn get_aliases(&self, chat_id: i64) -> Result<HashMap<String, String>, DatabaseError> {
+        let fn_impl = || {
+            let mut stmt = self.connection.prepare_cached(
+                "SELECT a.name, p.name FROM alias a
+                 INNER JOIN participant p ON a.participant_id = p.id
+                 WHERE a.chat_id = :chat_id AND a.deleted_at IS NULL AND p.deleted_at IS NULL",
+            )?;
+
+            let alias_iter = stmt.query_map(params![&chat_id], |row| {
+                Ok(AliasQuery {
+                    alias_name: row.get(0)?,
+                    participant_name: row.get(1)?,
+                })
+            })?;
+
+            let aliases = alias_iter.collect::<Result<Vec<_>, _>>()?;
+            let aliases = aliases
+                .into_iter()
+                .map(|r| (r.alias_name, r.participant_name))
+                .collect::<HashMap<_, _>>();
+
+            Ok(aliases)
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot get aliases", e)))
+    }
+
     fn add_group_if_not_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
         let fn_impl = || {
             // We cannot use INSERT OR IGNORE because our UNIQUE constraint includes a nullable column,
@@ -511,6 +538,11 @@ struct ActiveExpenseQuery {
     p_name: String,
     p_is_creditor: bool,
     p_amount: Option<i64>,
+}
+
+struct AliasQuery {
+    alias_name: String,
+    participant_name: String,
 }
 
 fn map_error<T: AsRef<str>>(message: T, e: anyhow::Error) -> DatabaseError {

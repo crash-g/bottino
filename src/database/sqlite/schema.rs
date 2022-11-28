@@ -7,6 +7,15 @@ const CREATE_PARTICIPANT_TABLE: &str = "CREATE TABLE IF NOT EXISTS participant (
   UNIQUE(chat_id, name, deleted_at)
 )";
 
+const CREATE_ALIAS_TABLE: &str = "CREATE TABLE IF NOT EXISTS alias (
+  chat_id INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  participant_id INTEGER NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  deleted_at DATETIME,
+  UNIQUE(chat_id, name, deleted_at)
+)";
+
 const CREATE_EXPENSE_TABLE: &str = "CREATE TABLE IF NOT EXISTS expense (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   chat_id INTEGER NOT NULL,
@@ -51,6 +60,7 @@ const CREATE_AUTO_REGISTER_FLAG_TABLE: &str = "CREATE TABLE IF NOT EXISTS chat_f
 
 pub fn create_all_tables(connection: &rusqlite::Connection) -> anyhow::Result<()> {
     connection.execute(CREATE_PARTICIPANT_TABLE, ())?;
+    connection.execute(CREATE_ALIAS_TABLE, ())?;
     connection.execute(CREATE_EXPENSE_TABLE, ())?;
     connection.execute(CREATE_EXPENSE_PARTICIPANT_TABLE, ())?;
     connection.execute(CREATE_GROUP_TABLE, ())?;

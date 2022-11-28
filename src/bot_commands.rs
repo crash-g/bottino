@@ -20,6 +20,7 @@ use tokio::sync::Mutex;
 use crate::{
     bot_logic::compute_exchanges,
     error::{DatabaseError, InputError, TelegramError},
+    types::ParsedParticipant,
     validator::{validate_group_name, validate_participant_names},
 };
 use crate::{
@@ -33,7 +34,7 @@ use crate::{
 };
 use crate::{
     types::ParsedExpense,
-    validator::{validate_and_resolve_groups, validate_expense},
+    validator::{validate_expense, validate_groups},
 };
 
 #[derive(Clone, Default)]
@@ -157,7 +158,9 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                         handle_remove_participants(&msg, &database, &s).await
                     }
                     ListParticipants | Lp => handle_list_participants(&bot, &msg, &database).await,
-                    AddGroup(group_name) | Ag(group_name) => handle_add_group(&msg, &database, &group_name).await,
+                    AddGroup(group_name) | Ag(group_name) => {
+                        handle_add_group(&msg, &database, &group_name).await
+                    }
                     RemoveGroup(group_name) | Rg(group_name) => {
                         handle_remove_group(&msg, &database, &group_name).await
                     }
@@ -225,7 +228,10 @@ async fn handle_expense<D: Database>(
 
     let expense = parse_expense(message).map_err(InputError::invalid_expense_syntax)?;
     let expense = expense.1;
-    let expense = validate_and_resolve_groups(expense, chat_id, database).await?;
+    validate_groups(&expense, chat_id, database).await?;
+    let expense = resolve_groups(expense, chat_id, database).await?;
+    let expense = resolve_aliases(expense, chat_id, database).await?;
+
     validate_expense(&expense)?;
     let expense = normalize_participants(expense);
 
@@ -245,6 +251,58 @@ async fn handle_expense<D: Database>(
         .save_expense_with_message(chat_id, expense, message_ts)?;
 
     Ok(())
+}
+
+/// Replace groups with their participants.
+async fn resolve_groups<D: Database>(
+    mut expense: ParsedExpense,
+    chat_id: i64,
+    database: &Arc<Mutex<D>>,
+) -> Result<ParsedExpense, DatabaseError> {
+    let mut participants = Vec::with_capacity(expense.participants.len());
+
+    for participant in expense.participants {
+        if participant.is_group() {
+            let members = database
+                .lock()
+                .await
+                .get_group_members(chat_id, &participant.name)?;
+
+            for member in members {
+                let p = if participant.is_creditor() {
+                    ParsedParticipant::new_creditor(&member, None)
+                } else {
+                    ParsedParticipant::new_debtor(&member, None)
+                };
+                participants.push(p);
+            }
+        } else {
+            participants.push(participant);
+        }
+    }
+
+    expense.participants = participants;
+    Ok(expense)
+}
+
+/// Replace aliases with the corresponding participant.
+async fn resolve_aliases<D: Database>(
+    mut expense: ParsedExpense,
+    chat_id: i64,
+    database: &Arc<Mutex<D>>,
+) -> Result<ParsedExpense, DatabaseError> {
+    let aliases = database.lock().await.get_aliases(chat_id)?;
+
+    for participant in &mut expense.participants {
+        if aliases.contains_key(&participant.name) {
+            participant.name = aliases
+                .get(&participant.name)
+                .expect("Just checked that the key is present!")
+                .clone();
+        }
+    }
+
+    Ok(expense)
 }
 
 /// Make sure that each participant appears at most once as debtor and
