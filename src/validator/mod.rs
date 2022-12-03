@@ -36,6 +36,54 @@ pub async fn validate_participants_exist<D: Database, T: AsRef<str>>(
     Ok(())
 }
 
+/// Check that all aliases provided by the user are not already registered as participants or aliases.
+pub async fn validate_aliases_do_not_exist<D: Database, T: AsRef<str>>(
+    aliases: &[T],
+    chat_id: i64,
+    database: &Arc<Mutex<D>>,
+) -> anyhow::Result<()> {
+    if !aliases.is_empty() {
+        let registered_participants = database.lock().await.get_participants(chat_id)?;
+        let registered_participants: HashSet<_> = registered_participants.into_iter().collect();
+
+        let registered_aliases = database.lock().await.get_aliases(chat_id)?;
+
+        for alias in aliases {
+            if registered_participants.contains(alias.as_ref()) {
+                return Err(InputError::alias_registered_as_participant(
+                    alias.as_ref().to_string(),
+                )
+                .into());
+            }
+            if let Some(p) = registered_aliases.get(alias.as_ref()) {
+                return Err(InputError::alias_registered_as_alias(
+                    alias.as_ref().to_string(),
+                    p.to_string(),
+                )
+                .into());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Check that a participant provided by the user exists in the database.
+pub async fn validate_participant_exists<D: Database, T: AsRef<str>>(
+    participant: T,
+    chat_id: i64,
+    database: &Arc<Mutex<D>>,
+) -> anyhow::Result<()> {
+    if database
+        .lock()
+        .await
+        .participant_exists(chat_id, participant.as_ref())?
+    {
+        Ok(())
+    } else {
+        Err(InputError::unregistered_participant(participant.as_ref().to_string()).into())
+    }
+}
+
 /// Verify that a group with the given name exists in the database.
 pub async fn validate_group_exists<D: Database>(
     group_name: &str,
@@ -62,6 +110,28 @@ pub fn validate_participant_names<T: AsRef<str>>(names: &[T]) -> Result<(), Inpu
             return Err(InputError::invalid_participant_name(
                 name.as_ref().to_string(),
             ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Check that a participant name is valid.
+pub fn validate_participant_name<T: AsRef<str>>(name: T) -> Result<(), InputError> {
+    if is_valid_name(&name) {
+        Ok(())
+    } else {
+        Err(InputError::invalid_participant_name(
+            name.as_ref().to_string(),
+        ))
+    }
+}
+
+/// Check that a list of alias names is valid.
+pub fn validate_alias_names<T: AsRef<str>>(names: &[T]) -> Result<(), InputError> {
+    for name in names {
+        if !is_valid_name(name) {
+            return Err(InputError::invalid_alias_name(name.as_ref().to_string()));
         }
     }
 

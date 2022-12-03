@@ -238,6 +238,129 @@ impl Database for SqliteDatabase {
         block_in_place(|| fn_impl().map_err(|e| map_error("cannot get participants", e)))
     }
 
+    fn participant_exists(
+        &self,
+        chat_id: i64,
+        participant_name: &str,
+    ) -> Result<bool, DatabaseError> {
+        let fn_impl = || {
+            let participant_id: Option<i64> = self
+                .connection
+                .query_row(
+                    "SELECT id FROM participant
+                     WHERE chat_id = :chat_id AND name = :participant_name AND deleted_at IS NULL",
+                    params![&chat_id, &participant_name],
+                    |row| row.get(0),
+                )
+                .optional()?;
+
+            if participant_id.is_none() {
+                Ok(false)
+            } else {
+                Ok(true)
+            }
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot check if participant exists", e)))
+    }
+
+    fn add_aliases_if_not_exist<T: AsRef<str>>(
+        &mut self,
+        chat_id: i64,
+        participant: &str,
+        aliases: &[T],
+    ) -> Result<(), DatabaseError> {
+        let mut fn_impl = || {
+            let tx = self.connection.transaction()?;
+
+            let participant_id: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM participant
+                     WHERE chat_id = :chat_id AND name = :participant AND deleted_at IS NULL",
+                    params![&chat_id, &participant],
+                    |row| row.get(0),
+                )
+                .optional()?;
+
+            if let Some(participant_id) = participant_id {
+                // We cannot use INSERT OR IGNORE because our UNIQUE constraint includes a nullable column,
+                // and NULL values are considered distinct (https://www.sqlite.org/nulls.html).
+                let mut insert_alias_stmt = tx.prepare_cached(
+                    "INSERT INTO alias (chat_id, name, participant_id) SELECT ?1, ?2, ?3
+                     WHERE NOT EXISTS (
+                         SELECT 1 FROM alias WHERE chat_id = ?1 AND name = ?2 AND deleted_at IS NULL
+                     ) AND NOT EXISTS (
+                         SELECT 1 FROM participant WHERE chat_id = ?1 AND name = ?2 AND deleted_at IS NULL
+                     )",
+                )?;
+                // It's unclear how to use an IN clause, so we use a loop
+                // https://github.com/rusqlite/rusqlite/issues/345
+                for alias in aliases {
+                    insert_alias_stmt.execute(params![
+                        &chat_id,
+                        &alias.as_ref(),
+                        &participant_id
+                    ])?;
+                    // Here the insert may be skipped because:
+                    // 1. the alias was already present for the given participant
+                    // 2. the alias was present for a different participant
+                    // Case (1) is OK, but case (2) is a problem. The bot logic will (should?) check this
+                    // already, so if it happens it can only be because of concurrency. Still, we have
+                    // no way to know the reason without an additional query, which for now we will not do.
+                }
+            } else {
+                return Err(DatabaseError::concurrency("the participant was not found").into());
+            }
+
+            tx.commit()?;
+
+            Ok(())
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot add aliases", e)))
+    }
+
+    fn remove_aliases_if_exist<T: AsRef<str>>(
+        &mut self,
+        chat_id: i64,
+        participant: &str,
+        aliases: &[T],
+    ) -> Result<(), DatabaseError> {
+        let mut fn_impl = || {
+            let tx = self.connection.transaction()?;
+
+            let participant_id: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM participant
+                 WHERE chat_id = :chat_id AND name = :participant AND deleted_at IS NULL",
+                    params![&chat_id, &participant],
+                    |row| row.get(0),
+                )
+                .optional()?;
+
+            if let Some(participant_id) = participant_id {
+                let mut remove_alias_stmt = tx.prepare_cached(
+                    "UPDATE alias SET deleted_at = CURRENT_TIMESTAMP
+                     WHERE name = ?1 AND participant_id = ?2 AND deleted_at IS NULL",
+                )?;
+
+                // It's unclear how to use an IN clause, so we use a loop
+                // https://github.com/rusqlite/rusqlite/issues/345
+                for alias in aliases {
+                    remove_alias_stmt.execute(params![&alias.as_ref(), &participant_id])?;
+                }
+            } else {
+                return Err(DatabaseError::concurrency("the participant was not found").into());
+            }
+
+            tx.commit()?;
+
+            Ok(())
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot remove aliases", e)))
+    }
+
     fn get_aliases(&self, chat_id: i64) -> Result<HashMap<String, String>, DatabaseError> {
         let fn_impl = || {
             let mut stmt = self.connection.prepare_cached(
@@ -308,14 +431,16 @@ impl Database for SqliteDatabase {
         let mut fn_impl = || {
             let tx = self.connection.transaction()?;
 
-            let group_id: i64 = tx.query_row(
-                "SELECT id FROM participant_group
+            let group_id: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM participant_group
                  WHERE chat_id = :chat_id AND name = :group_name AND deleted_at IS NULL",
-                params![&chat_id, &group_name],
-                |row| row.get(0),
-            )?;
+                    params![&chat_id, &group_name],
+                    |row| row.get(0),
+                )
+                .optional()?;
 
-            {
+            if let Some(group_id) = group_id {
                 let mut get_participant_id_stmt = tx.prepare_cached(
                     "SELECT id FROM participant
                      WHERE chat_id = :chat_id AND name = :member AND deleted_at IS NULL",
@@ -347,6 +472,8 @@ impl Database for SqliteDatabase {
                         );
                     }
                 }
+            } else {
+                return Err(DatabaseError::concurrency("the group was not found").into());
             }
 
             tx.commit()?;
@@ -366,14 +493,16 @@ impl Database for SqliteDatabase {
         let mut fn_impl = || {
             let tx = self.connection.transaction()?;
 
-            let group_id: i64 = tx.query_row(
-                "SELECT id FROM participant_group
+            let group_id: Option<i64> = tx
+                .query_row(
+                    "SELECT id FROM participant_group
                  WHERE chat_id = :chat_id AND name = :group_name AND deleted_at IS NULL",
-                params![&chat_id, &group_name],
-                |row| row.get(0),
-            )?;
+                    params![&chat_id, &group_name],
+                    |row| row.get(0),
+                )
+                .optional()?;
 
-            {
+            if let Some(group_id) = group_id {
                 let mut remove_member_stmt = tx.prepare_cached(
                     "UPDATE group_member SET deleted_at = CURRENT_TIMESTAMP
                      WHERE group_id = ?1 AND participant_id =
@@ -386,6 +515,8 @@ impl Database for SqliteDatabase {
                 for member in members {
                     remove_member_stmt.execute(params![&group_id, &chat_id, &member.as_ref()])?;
                 }
+            } else {
+                return Err(DatabaseError::concurrency("the group was not found").into());
             }
 
             tx.commit()?;

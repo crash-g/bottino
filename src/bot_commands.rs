@@ -20,8 +20,12 @@ use tokio::sync::Mutex;
 use crate::{
     bot_logic::compute_exchanges,
     error::{DatabaseError, InputError, TelegramError},
+    parser::parse_participant_and_aliases,
     types::ParsedParticipant,
-    validator::{validate_group_name, validate_participant_names},
+    validator::{
+        validate_alias_names, validate_aliases_do_not_exist, validate_group_name,
+        validate_participant_exists, validate_participant_name, validate_participant_names,
+    },
 };
 use crate::{
     database::sqlite::SqliteDatabase,
@@ -91,6 +95,13 @@ enum Command {
     #[command(description = "shortcut for the /listparticipants command")]
     Lp,
     #[command(
+        description = "/addparticipantaliases participant alias1 alias2 adds two aliases for a participant \
+                       if not already present."
+    )]
+    AddParticipantAliases(String),
+    #[command(description = "shortcut for the /addparticipantaliases command")]
+    Apa(String),
+    #[command(
         description = "/addgroup group_name member1 member2 creates a group with two members."
     )]
     AddGroup(String),
@@ -158,6 +169,9 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                         handle_remove_participants(&msg, &database, &s).await
                     }
                     ListParticipants | Lp => handle_list_participants(&bot, &msg, &database).await,
+                    AddParticipantAliases(s) | Apa(s) => {
+                        handle_add_participant_aliases(&msg, &database, &s).await
+                    }
                     AddGroup(group_name) | Ag(group_name) => {
                         handle_add_group(&msg, &database, &group_name).await
                     }
@@ -294,7 +308,7 @@ async fn resolve_aliases<D: Database>(
     let aliases = database.lock().await.get_aliases(chat_id)?;
 
     for participant in &mut expense.participants {
-        if aliases.contains_key(&participant.name) {
+        if !participant.is_group() && aliases.contains_key(&participant.name) {
             participant.name = aliases
                 .get(&participant.name)
                 .expect("Just checked that the key is present!")
@@ -452,6 +466,31 @@ async fn handle_list_participants<D: Database>(
     bot.send_message(msg.chat.id, result)
         .await
         .map_err(|e| TelegramError::new("cannot send participant list", e))?;
+
+    Ok(())
+}
+
+async fn handle_add_participant_aliases<D: Database>(
+    msg: &Message,
+    database: &Arc<Mutex<D>>,
+    payload: &str,
+) -> HandlerResult {
+    let chat_id = msg.chat.id.0;
+    let (participant, aliases) = parse_participant_and_aliases(payload)?;
+    validate_participant_name(&participant)?;
+    validate_alias_names(&aliases)?;
+    debug!(
+        "Adding aliases to participant named {participant}. Aliases: {:#?}",
+        aliases
+    );
+
+    validate_participant_exists(&participant, chat_id, database).await?;
+    validate_aliases_do_not_exist(&aliases, chat_id, database).await?;
+
+    database
+        .lock()
+        .await
+        .add_aliases_if_not_exist(chat_id, &participant, &aliases)?;
 
     Ok(())
 }
