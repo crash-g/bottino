@@ -17,7 +17,6 @@ where it is started.
 
 ## TODO list
 
-- add commands to add and remove aliases
 - accept UTF-8 input
 - turn foreign keys on with `PRAGMA foreign_keys = ON;` (?)
 - add interactive mode to delete expense (?)

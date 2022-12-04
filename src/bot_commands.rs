@@ -109,6 +109,10 @@ enum Command {
     RemoveParticipantAliases(String),
     #[command(description = "shortcut for the /removeparticipantaliases command")]
     Rpa(String),
+    #[command(description = "returns the list of all aliases of the given participant.")]
+    ListParticipantAliases(String),
+    #[command(description = "shortcut for the /listparticipantaliases command")]
+    Lpa(String),
     #[command(
         description = "/addgroup group_name member1 member2 creates a group with two members."
     )]
@@ -182,6 +186,9 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                     }
                     RemoveParticipantAliases(s) | Rpa(s) => {
                         handle_remove_participant_aliases(&msg, &database, &s).await
+                    }
+                    ListParticipantAliases(participant) | Lpa(participant) => {
+                        handle_list_participant_aliases(&bot, &msg, &database, &participant).await
                     }
                     AddGroup(group_name) | Ag(group_name) => {
                         handle_add_group(&msg, &database, &group_name).await
@@ -392,6 +399,7 @@ async fn handle_list<D: Database>(
     limit: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
+    let limit = limit.trim();
     let limit = if limit.is_empty() {
         1
     } else {
@@ -422,6 +430,7 @@ async fn handle_delete<D: Database>(
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     let expense_id = expense_id
+        .trim()
         .parse()
         .map_err(|_| InputError::invalid_expense_id(expense_id.to_string()))?;
 
@@ -531,12 +540,39 @@ async fn handle_remove_participant_aliases<D: Database>(
     Ok(())
 }
 
+async fn handle_list_participant_aliases<D: Database>(
+    bot: &Bot,
+    msg: &Message,
+    database: &Arc<Mutex<D>>,
+    participant: &str,
+) -> HandlerResult {
+    let chat_id = msg.chat.id.0;
+    let participant = participant.trim();
+    validate_participant_name(participant)?;
+    debug!("Listing all aliases of participant: {participant}");
+
+    validate_participant_exists(participant, chat_id, database).await?;
+
+    let aliases = database
+        .lock()
+        .await
+        .get_participant_aliases(chat_id, participant)?;
+
+    let result = format_simple_list(&aliases);
+    bot.send_message(msg.chat.id, result)
+        .await
+        .map_err(|e| TelegramError::new("cannot send participant alias list", e))?;
+
+    Ok(())
+}
+
 async fn handle_add_group<D: Database>(
     msg: &Message,
     database: &Arc<Mutex<D>>,
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
+    let group_name = group_name.trim();
     validate_group_name(group_name)?;
     debug!("Creating group named {group_name}");
 
@@ -554,6 +590,7 @@ async fn handle_remove_group<D: Database>(
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
+    let group_name = group_name.trim();
     validate_group_name(group_name)?;
     debug!("Removing group named {group_name}");
 
@@ -641,6 +678,7 @@ async fn handle_list_group_members<D: Database>(
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
+    let group_name = group_name.trim();
     validate_group_name(group_name)?;
     debug!("Listing all members of group: {group_name}");
 
