@@ -388,6 +388,28 @@ impl Database for SqliteDatabase {
         block_in_place(|| fn_impl().map_err(|e| map_error("cannot get aliases", e)))
     }
 
+    fn get_participant_aliases(
+        &self,
+        chat_id: i64,
+        participant: &str,
+    ) -> Result<Vec<String>, DatabaseError> {
+        let fn_impl = || {
+            let mut stmt = self.connection.prepare_cached(
+                "SELECT a.name FROM alias a
+                 INNER JOIN participant p ON a.participant_id = p.id
+                 WHERE a.chat_id = :chat_id AND p.name = :participant_name
+                     AND a.deleted_at IS NULL AND p.deleted_at IS NULL",
+            )?;
+
+            let alias_iter = stmt.query_map(params![&chat_id, &participant], |row| row.get(0))?;
+
+            let aliases = alias_iter.collect::<Result<Vec<_>, _>>()?;
+            Ok(aliases)
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot get participant aliases", e)))
+    }
+
     fn add_group_if_not_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
         let fn_impl = || {
             // We cannot use INSERT OR IGNORE because our UNIQUE constraint includes a nullable column,

@@ -36,6 +36,23 @@ pub async fn validate_participants_exist<D: Database, T: AsRef<str>>(
     Ok(())
 }
 
+/// Check that a participant provided by the user exists in the database.
+pub async fn validate_participant_exists<D: Database, T: AsRef<str>>(
+    participant: T,
+    chat_id: i64,
+    database: &Arc<Mutex<D>>,
+) -> anyhow::Result<()> {
+    if database
+        .lock()
+        .await
+        .participant_exists(chat_id, participant.as_ref())?
+    {
+        Ok(())
+    } else {
+        Err(InputError::unregistered_participant(participant.as_ref().to_string()).into())
+    }
+}
+
 /// Check that all aliases provided by the user are not already registered as participants or aliases.
 pub async fn validate_aliases_do_not_exist<D: Database, T: AsRef<str>>(
     aliases: &[T],
@@ -67,21 +84,31 @@ pub async fn validate_aliases_do_not_exist<D: Database, T: AsRef<str>>(
     Ok(())
 }
 
-/// Check that a participant provided by the user exists in the database.
-pub async fn validate_participant_exists<D: Database, T: AsRef<str>>(
-    participant: T,
+/// Check that all aliases provided by the user are aliases of the given participant.
+pub async fn validate_aliases_exist<D: Database, T: AsRef<str>>(
+    participant: &str,
+    aliases: &[T],
     chat_id: i64,
     database: &Arc<Mutex<D>>,
 ) -> anyhow::Result<()> {
-    if database
-        .lock()
-        .await
-        .participant_exists(chat_id, participant.as_ref())?
-    {
-        Ok(())
-    } else {
-        Err(InputError::unregistered_participant(participant.as_ref().to_string()).into())
+    if !aliases.is_empty() {
+        let registered_aliases = database
+            .lock()
+            .await
+            .get_participant_aliases(chat_id, participant)?;
+        let registered_aliases = registered_aliases.into_iter().collect::<HashSet<_>>();
+
+        for alias in aliases {
+            if registered_aliases.contains(alias.as_ref()) {
+                return Err(InputError::alias_not_registered_as_alias(
+                    alias.as_ref().to_string(),
+                    participant.to_string(),
+                )
+                .into());
+            }
+        }
     }
+    Ok(())
 }
 
 /// Verify that a group with the given name exists in the database.

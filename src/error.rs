@@ -36,6 +36,9 @@ pub enum InputError {
     #[error("`{0}` is already used as an alias for participant `{1}`")]
     AliasRegisteredAsAlias(String, String),
 
+    #[error("`{0}` is not an alias for participant `{1}`")]
+    AliasNotRegisteredAsAlias(String, String),
+
     #[error("`{0}` is not a registered group")]
     UnregisteredGroup(String),
 
@@ -93,6 +96,10 @@ impl InputError {
 
     pub fn alias_registered_as_alias(name: String, participant: String) -> Self {
         InputError::AliasRegisteredAsAlias(name, participant)
+    }
+
+    pub fn alias_not_registered_as_alias(name: String, participant: String) -> Self {
+        InputError::AliasNotRegisteredAsAlias(name, participant)
     }
 
     pub fn unregistered_group(name: String) -> Self {
