@@ -28,7 +28,7 @@ pub fn validate_participant_names<T: AsRef<str>>(names: &[T]) -> Result<(), Inpu
 
 /// Check that a participant name is valid.
 pub fn validate_participant_name(name: &str) -> Result<(), InputError> {
-    if is_valid_name(&name) {
+    if is_valid_name(name) {
         Ok(())
     } else {
         Err(InputError::invalid_participant_name(name.to_string()))
@@ -48,7 +48,7 @@ pub fn validate_alias_names<T: AsRef<str>>(names: &[T]) -> Result<(), InputError
 
 /// Check that a group name is valid.
 pub fn validate_group_name(name: &str) -> Result<(), InputError> {
-    if is_valid_name(&name) {
+    if is_valid_name(name) {
         Ok(())
     } else {
         Err(InputError::invalid_group_name(name.to_string()))

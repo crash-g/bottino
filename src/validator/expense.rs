@@ -22,10 +22,12 @@ pub async fn validate_groups<D: Database>(
     let groups = groups.into_iter().collect::<HashSet<_>>();
 
     for participant in &expense.participants {
-        if participant.is_group() && participant.amount.is_some() {
-            return Err(InputError::group_with_custom_amount().into());
-        } else if !groups.contains(&participant.name) {
-            return Err(InputError::unregistered_group(participant.name.clone()).into());
+        if participant.is_group() {
+            if participant.amount.is_some() {
+                return Err(InputError::group_with_custom_amount().into());
+            } else if !groups.contains(&participant.name) {
+                return Err(InputError::unregistered_group(participant.name.clone()).into());
+            }
         }
     }
 
