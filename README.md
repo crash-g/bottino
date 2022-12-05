@@ -17,7 +17,6 @@ where it is started.
 
 ## TODO list
 
-- accept UTF-8 input
 - turn foreign keys on with `PRAGMA foreign_keys = ON;` (?)
 - add interactive mode to delete expense (?)
 - add interactive mode to list expenses (?)
@@ -34,7 +33,7 @@ where it is started.
 
 ## Future plans
 
-Commands are not interactive and we have no aliases.
+Commands are not interactive.
 
 Also, we may add the possibility to get the participant list from the list of group members.
 
@@ -47,21 +46,6 @@ immediately be sent without arguments, which in general is not what you want.
 
 To resolve this we would need an interactive version of commands for all commands that accept an
 input.
-
-### Add user aliases
-
-Groups are great to prevent the boilerplate of writing many names when it's always the same people
-that take part.
-
-However, groups do not cover these use cases:
-
-1. participants are registered with long formal names, that will appear in the balance, but users
-   want a shortcut to refer to them in expenses (of course, groups could be *abused* to obtain this,
-   but there is still the limitation on custom amounts)
-2. (different) people what to address participants with different names (e.g. a complete and formal
-   name and a short nickname)
-
-These can be solved by aliases.
 
 ### Get list of participants
 

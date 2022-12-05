@@ -505,7 +505,7 @@ async fn handle_add_participant_aliases<D: Database>(
     );
 
     validate_participant_exists(&participant, chat_id, database).await?;
-    validate_aliases_do_not_exist(&aliases, chat_id, database).await?;
+    validate_aliases_do_not_exist(&participant, &aliases, chat_id, database).await?;
 
     database
         .lock()

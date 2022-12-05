@@ -77,7 +77,8 @@ name[/amount]
 
 ###### Name
 
-The name is an alphanumeric sequence of ASCII characters, optionally preceded by `@`. Examples:
+The name is an alphanumeric sequence that must start with a letter, optionally preceded by
+`@`. Examples:
 
 - `abc`
 - `a123`
@@ -255,15 +256,41 @@ This command is used to get the list of all registered participants. No argument
 
 ## Add participant aliases
 
-TODO
+Aliases are a way of referring to the same participant with different names. An alias could be, for
+instance, a shorter version of a name.
+
+They can be added with this command. If the participant does not exist or if one of the aliases is
+already in use (either as the name of a participant or as an alias of another participant), an error
+message is returned.
+
+Examples:
+
+```
+/addparticipantaliases participant a1 a2
+```
 
 ## Remove participant aliases
 
-TODO
+Aliases can be removed from a participant with this command.
+
+If the participant does not exist or one of the aliases is not an alias of the given participant, an
+error message is returned.
+
+Examples:
+
+```
+/removeparticipantaliases participant a1 a2
+```
 
 ## List participant aliases
 
-TODO
+This command returns the list of aliases of a participant.
+
+If the participant does not exist, an error message is returned.
+
+Examples:
+
+- `listparticipantaliases participant`
 
 ## Add group
 
@@ -296,7 +323,11 @@ this group are not affected.
 
 If the group or a participant does not exist, an error message is returned.
 
-The syntax is the same as the `\addgroup` syntax.
+Examples:
+
+```
+/addgroupmembers group_name p1 p2
+```
 
 ## Remove group members
 
@@ -305,7 +336,11 @@ this group are not affected.
 
 If the group or a participant does not exist, an error message is returned.
 
-The syntax is the same as the `\addgroup` syntax.
+Examples:
+
+```
+/removegroupmembers group_name p1 p2
+```
 
 ## List groups
 
