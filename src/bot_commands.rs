@@ -1,6 +1,7 @@
 //! Definition of Telegram bot commands and handlers.
 
 use std::{
+    cmp::Ordering,
     collections::{hash_map::Entry, HashMap},
     sync::Arc,
 };
@@ -379,7 +380,11 @@ async fn handle_balance<D: Database>(
     let chat_id = msg.chat.id.0;
 
     let active_expenses = database.lock().await.get_active_expenses(chat_id)?;
-    let exchanges = compute_exchanges(active_expenses);
+    let mut exchanges = compute_exchanges(active_expenses);
+    exchanges.sort_by(|e1, e2| match e1.debtor.cmp(&e2.debtor) {
+        Ordering::Equal => e1.creditor.cmp(&e2.creditor),
+        o => o,
+    });
     let formatted_balance = format_balance(&exchanges);
 
     bot.send_message(msg.chat.id, formatted_balance)
@@ -483,7 +488,8 @@ async fn handle_list_participants<D: Database>(
     database: &Arc<Mutex<D>>,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let participants = database.lock().await.get_participants(chat_id)?;
+    let mut participants = database.lock().await.get_participants(chat_id)?;
+    participants.sort();
 
     let result = format_simple_list(&participants);
 
@@ -557,10 +563,11 @@ async fn handle_list_participant_aliases<D: Database>(
 
     validate_participant_exists(participant, chat_id, database).await?;
 
-    let aliases = database
+    let mut aliases = database
         .lock()
         .await
         .get_participant_aliases(chat_id, participant)?;
+    aliases.sort();
 
     let result = format_simple_list(&aliases);
     bot.send_message(msg.chat.id, result)
@@ -664,7 +671,8 @@ async fn handle_list_groups<D: Database>(
     database: &Arc<Mutex<D>>,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let groups = database.lock().await.get_groups(chat_id)?;
+    let mut groups = database.lock().await.get_groups(chat_id)?;
+    groups.sort();
 
     let result = format_simple_list(&groups);
 
@@ -688,10 +696,11 @@ async fn handle_list_group_members<D: Database>(
 
     validate_group_exists(group_name, chat_id, database).await?;
 
-    let members = database
+    let mut members = database
         .lock()
         .await
         .get_group_members(chat_id, group_name)?;
+    members.sort();
 
     let result = format_simple_list(&members);
     bot.send_message(msg.chat.id, result)
