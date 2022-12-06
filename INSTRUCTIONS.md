@@ -34,8 +34,13 @@ The bot supports the following commands:
 - `/listgroups` or `/lg`: return the list of all existing groups
 - `/listgroupmembers` or `/lgm`: return the list of all members of a group
 
-All commands have shortcuts, except for `/reset` and `/delete` which are dangerous commands and are
-therefore intentionally left without a shortcut.
+**other commands**:
+
+- `/toggleautoregister`: enable or disable the automatic registration of participants
+- `isautoregister`: check if the automatic registration of participants is enabled
+
+Most commands have shortcuts. Notable exceptions are `/reset` and `/delete`, which are dangerous
+commands and are therefore intentionally left without a shortcut.
 
 Some commands accept no arguments, other require a string. In general, the bot does not answer to
 commands unless required or an error has occurred.
@@ -358,3 +363,17 @@ If the group does not exist, an error message is returned.
 Examples:
 
 - `listgroupmembers group_name`
+
+## Toggle auto register
+
+The automatic registration of participants is disabled by default to prevent accidentally adding a
+participant when making a typo.
+
+However, it is possible to bypass the check by enabling the automatic registration. This only
+applies to participants used in expenses.
+
+## Is auto register
+
+Check if the automatic registration is enabled (unknown participants used in expenses are
+automatically added as new participants) or disabled (an error is returned if an unknown participant
+or alias is used in an expense). By default, it is disabled.
