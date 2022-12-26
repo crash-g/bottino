@@ -31,13 +31,15 @@ pub trait Database {
     /// must have a unique ID, that can be used to delete it.
     fn get_active_expenses(&self, chat_id: i64) -> Result<Vec<SavedExpense>, DatabaseError>;
 
-    /// Get the latest active expenses, restricting the list by the given *limit*.
+    /// Get the list active expenses starting from *start* and restricting the list by the given
+    /// *limit*.
     ///
     /// An expense is active if it is neither settled nor deleted. Each returned expense
     /// must have a unique ID, that can be used to delete it.
     fn get_active_expenses_with_limit(
         &self,
         chat_id: i64,
+        start: usize,
         limit: usize,
     ) -> Result<Vec<SavedExpense>, DatabaseError>;
 

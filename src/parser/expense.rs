@@ -285,8 +285,7 @@ mod tests {
                 .message
                 .unwrap()
                 .split('\n')
-                .collect::<Vec<_>>()
-                .len(),
+                .count(),
             4
         );
         assert_eq!(rest, "");
@@ -304,7 +303,7 @@ mod tests {
             assert_eq!(e.input, "123");
             assert_eq!(e.code, ErrorKind::Eof);
         } else {
-            assert!(false);
+            unreachable!();
         }
 
         // Parsing the amount fails.
@@ -315,7 +314,7 @@ mod tests {
             assert_eq!(e.input, "12d d1");
             assert_eq!(e.code, ErrorKind::MapRes);
         } else {
-            assert!(false);
+            unreachable!();
         }
 
         // Parsing a participant amount fails.
@@ -326,7 +325,7 @@ mod tests {
             assert_eq!(e.input, "d1/3.aa");
             assert_eq!(e.code, ErrorKind::Eof);
         } else {
-            assert!(false);
+            unreachable!();
         }
 
         Ok(())

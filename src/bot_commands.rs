@@ -1,46 +1,23 @@
 //! Definition of Telegram bot commands and handlers.
 
-use std::{
-    cmp::Ordering,
-    collections::{hash_map::Entry, HashMap},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use log::{debug, error};
 use teloxide::{
     dispatching::{
-        dialogue::{self, InMemStorage},
+        dialogue::{self, GetChatId, InMemStorage},
         UpdateHandler,
     },
     prelude::*,
-    types::ParseMode,
+    types::{InlineKeyboardButton, InlineKeyboardMarkup, MessageId, ParseMode},
     utils::command::BotCommands,
 };
 use tokio::sync::Mutex;
 
 use crate::{
-    bot_logic::compute_exchanges,
+    database::{sqlite::SqliteDatabase, Database},
+    endpoints,
     error::{DatabaseError, InputError, TelegramError},
-    parser::parse_participant_and_aliases,
-    types::ParsedParticipant,
-    validator::{
-        validate_alias_names, validate_aliases_do_not_exist, validate_aliases_exist,
-        validate_group_name, validate_participant_exists, validate_participant_name,
-        validate_participant_names,
-    },
-};
-use crate::{
-    database::sqlite::SqliteDatabase,
-    formatter::{format_balance, format_list_expenses, format_simple_list},
-};
-use crate::{database::Database, validator::validate_participants_exist};
-use crate::{
-    parser::{parse_expense, parse_group_and_members, parse_participants},
-    validator::validate_group_exists,
-};
-use crate::{
-    types::ParsedExpense,
-    validator::{validate_expense, validate_groups},
 };
 
 #[derive(Clone, Default)]
@@ -72,9 +49,9 @@ enum Command {
     #[command(
         description = "/list n shows the last n expenses; without argument, it shows the last one."
     )]
-    List(String),
+    List,
     #[command(description = "shortcut for the /list command.")]
-    L(String),
+    L,
     #[command(
         description = "/delete <id> deletes the expense with the given ID; to find the ID, use /list."
     )]
@@ -165,6 +142,9 @@ type HandlerResult = anyhow::Result<()>;
 // handling.
 type DatabaseInUse = Arc<Mutex<SqliteDatabase>>;
 
+const DEFAULT_LIMIT: usize = 20;
+const LIST_CALLBACK_PREFIX: &str = "list";
+
 pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
     use dptree::case;
 
@@ -177,7 +157,7 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                     Expense(e) | E(e) => handle_expense(&msg, &database, &e).await,
                     Balance | B => handle_balance(&bot, &msg, &database).await,
                     Reset => handle_reset(&msg, &database).await,
-                    List(limit) | L(limit) => handle_list(&bot, &msg, &database, &limit).await,
+                    List | L => handle_list(&bot, &msg, &database).await,
                     Delete(id) => handle_delete(&msg, &database, &id).await,
                     AddParticipants(s) | Ap(s) => {
                         handle_add_participants(&msg, &database, &s).await
@@ -245,7 +225,40 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
 
     let message_handler = Update::filter_message().branch(command_handler);
 
-    dialogue::enter::<Update, InMemStorage<State>, State, _>().branch(message_handler)
+    let callback_query_handler =
+        Update::filter_callback_query().branch(case![State::Normal].endpoint(
+            |q: CallbackQuery, bot: Bot, database: DatabaseInUse| async move {
+                let chat_id = q.chat_id();
+                let message = q.message;
+                let callback_data = q.data;
+
+                match (chat_id, message, callback_data) {
+                    (Some(chat_id), Some(message), Some(callback_data)) => {
+                        let message_id = message.id;
+                        if callback_data.starts_with(LIST_CALLBACK_PREFIX) {
+                            handle_list_callback(
+                                chat_id,
+                                message_id,
+                                &bot,
+                                &database,
+                                &callback_data[4..callback_data.len()],
+                            )
+                            .await?;
+                        } else {
+                            debug!("Unknown callback data: {}", callback_data);
+                        }
+                    }
+                    _ => {
+                        debug!("Missing chat id, message or callback data");
+                    }
+                }
+                Ok(())
+            },
+        ));
+
+    dialogue::enter::<Update, InMemStorage<State>, State, _>()
+        .branch(message_handler)
+        .branch(callback_query_handler)
 }
 
 async fn handle_help(bot: &Bot, msg: &Message) -> HandlerResult {
@@ -262,114 +275,8 @@ async fn handle_expense<D: Database>(
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     let message_ts = msg.date;
-
-    let expense = parse_expense(message).map_err(InputError::invalid_expense_syntax)?;
-    let expense = expense.1;
-    validate_groups(&expense, chat_id, database).await?;
-    let expense = resolve_groups(expense, chat_id, database).await?;
-    let expense = resolve_aliases(expense, chat_id, database).await?;
-
-    validate_expense(&expense)?;
-    let expense = normalize_participants(expense);
-
-    let participants: Vec<_> = expense.participants.iter().map(|p| &p.name).collect();
-    if database.lock().await.is_auto_register_active(chat_id)? {
-        database
-            .lock()
-            .await
-            .add_participants_if_not_exist(chat_id, &participants)?;
-    } else {
-        validate_participants_exist(&participants, chat_id, database).await?;
-    }
-
-    database
-        .lock()
-        .await
-        .save_expense_with_message(chat_id, expense, message_ts)?;
-
+    endpoints::handle_expense(chat_id, message, database, message_ts).await?;
     Ok(())
-}
-
-/// Replace groups with their participants.
-async fn resolve_groups<D: Database>(
-    mut expense: ParsedExpense,
-    chat_id: i64,
-    database: &Arc<Mutex<D>>,
-) -> Result<ParsedExpense, DatabaseError> {
-    let mut participants = Vec::with_capacity(expense.participants.len());
-
-    for participant in expense.participants {
-        if participant.is_group() {
-            let members = database
-                .lock()
-                .await
-                .get_group_members(chat_id, &participant.name)?;
-
-            for member in members {
-                let p = if participant.is_creditor() {
-                    ParsedParticipant::new_creditor(&member, None)
-                } else {
-                    ParsedParticipant::new_debtor(&member, None)
-                };
-                participants.push(p);
-            }
-        } else {
-            participants.push(participant);
-        }
-    }
-
-    expense.participants = participants;
-    Ok(expense)
-}
-
-/// Replace aliases with the corresponding participant.
-async fn resolve_aliases<D: Database>(
-    mut expense: ParsedExpense,
-    chat_id: i64,
-    database: &Arc<Mutex<D>>,
-) -> Result<ParsedExpense, DatabaseError> {
-    let aliases = database.lock().await.get_aliases(chat_id)?;
-
-    for participant in &mut expense.participants {
-        if !participant.is_group() && aliases.contains_key(&participant.name) {
-            participant.name = aliases
-                .get(&participant.name)
-                .expect("Just checked that the key is present!")
-                .clone();
-        }
-    }
-
-    Ok(expense)
-}
-
-/// Make sure that each participant appears at most once as debtor and
-/// at most once as creditor (so at most twice in total).
-///
-/// If a participant has a custom amount, make sure to preserve it.
-fn normalize_participants(expense: ParsedExpense) -> ParsedExpense {
-    let mut participants = HashMap::new();
-
-    for participant in expense.participants {
-        match participants.entry((participant.name.clone(), participant.is_creditor())) {
-            Entry::Occupied(mut e) => {
-                if participant.amount.is_some() {
-                    // If a participant has a custom amount, it supersedes any mention without.
-                    // Note that this can only happen once because we have already validated the expense.
-                    e.insert(participant);
-                }
-            }
-            Entry::Vacant(e) => {
-                // We insert the participant if not already present.
-                e.insert(participant);
-            }
-        }
-    }
-
-    ParsedExpense::new(
-        participants.into_iter().map(|(_, p)| p).collect(),
-        expense.amount,
-        expense.message,
-    )
 }
 
 async fn handle_balance<D: Database>(
@@ -378,15 +285,7 @@ async fn handle_balance<D: Database>(
     database: &Arc<Mutex<D>>,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-
-    let active_expenses = database.lock().await.get_active_expenses(chat_id)?;
-    let mut exchanges = compute_exchanges(active_expenses);
-    exchanges.sort_by(|e1, e2| match e1.debtor.cmp(&e2.debtor) {
-        Ordering::Equal => e1.creditor.cmp(&e2.creditor),
-        o => o,
-    });
-    let formatted_balance = format_balance(&exchanges);
-
+    let formatted_balance = endpoints::handle_balance(chat_id, database).await?;
     bot.send_message(msg.chat.id, formatted_balance)
         .parse_mode(ParseMode::MarkdownV2)
         .await
@@ -396,7 +295,6 @@ async fn handle_balance<D: Database>(
 
 async fn handle_reset<D: Database>(msg: &Message, database: &Arc<Mutex<D>>) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-
     database.lock().await.mark_all_as_settled(chat_id)?;
     Ok(())
 }
@@ -405,31 +303,70 @@ async fn handle_list<D: Database>(
     bot: &Bot,
     msg: &Message,
     database: &Arc<Mutex<D>>,
-    limit: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let limit = limit.trim();
-    let limit = if limit.is_empty() {
-        1
-    } else {
-        limit
-            .parse()
-            .map_err(|_| InputError::invalid_limit(limit.to_string()))?
-    };
-    debug!("Producing the list of expenses with limit {}", limit);
+    let (result, there_are_more) =
+        endpoints::handle_list(chat_id, database, 0, DEFAULT_LIMIT).await?;
 
-    let active_expenses = database
-        .lock()
-        .await
-        .get_active_expenses_with_limit(chat_id, limit)?;
-    let result = format_list_expenses(&active_expenses);
+    let buttons = if there_are_more {
+        vec![InlineKeyboardButton::callback(
+            "Next",
+            make_limit_callback_data(DEFAULT_LIMIT),
+        )]
+    } else {
+        vec![]
+    };
 
     bot.send_message(msg.chat.id, result)
         .parse_mode(ParseMode::MarkdownV2)
+        .reply_markup(InlineKeyboardMarkup::new([buttons]))
         .await
         .map_err(|e| TelegramError::new("cannot send expense list", e))?;
 
     Ok(())
+}
+
+async fn handle_list_callback<D: Database>(
+    chat_id: ChatId,
+    message_id: MessageId,
+    bot: &Bot,
+    database: &Arc<Mutex<D>>,
+    start: &str,
+) -> HandlerResult {
+    let start = start.trim();
+    let start = start.parse()?;
+
+    let (result, there_are_more) =
+        endpoints::handle_list(chat_id.0, database, start, DEFAULT_LIMIT).await?;
+
+    let mut buttons = vec![];
+    if start > 0 {
+        if start <= DEFAULT_LIMIT {
+            let button = InlineKeyboardButton::callback("Previous", make_limit_callback_data(0));
+            buttons.push(button);
+        } else {
+            let button = InlineKeyboardButton::callback(
+                "Previous",
+                make_limit_callback_data(start - DEFAULT_LIMIT),
+            );
+            buttons.push(button);
+        }
+    }
+    if there_are_more {
+        let button =
+            InlineKeyboardButton::callback("Next", make_limit_callback_data(start + DEFAULT_LIMIT));
+        buttons.push(button);
+    }
+
+    bot.edit_message_text(chat_id, message_id, result)
+        .parse_mode(ParseMode::MarkdownV2)
+        .reply_markup(InlineKeyboardMarkup::new([buttons]))
+        .await?;
+    Ok(())
+}
+
+fn make_limit_callback_data(start: usize) -> String {
+    format!("list {}", start)
 }
 
 async fn handle_delete<D: Database>(
@@ -438,12 +375,7 @@ async fn handle_delete<D: Database>(
     expense_id: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let expense_id = expense_id
-        .trim()
-        .parse()
-        .map_err(|_| InputError::invalid_expense_id(expense_id.to_string()))?;
-
-    database.lock().await.delete_expense(chat_id, expense_id)?;
+    endpoints::handle_delete(chat_id, database, expense_id).await?;
     Ok(())
 }
 
@@ -453,13 +385,7 @@ async fn handle_add_participants<D: Database>(
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let participants = parse_participants(payload)?;
-    validate_participant_names(&participants)?;
-    debug!("Adding participants: {:#?}", participants);
-    database
-        .lock()
-        .await
-        .add_participants_if_not_exist(chat_id, &participants)?;
+    endpoints::handle_add_participants(chat_id, database, payload).await?;
     Ok(())
 }
 
@@ -469,16 +395,7 @@ async fn handle_remove_participants<D: Database>(
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let participants = parse_participants(payload)?;
-    validate_participant_names(&participants)?;
-    debug!("Removing participants: {:#?}", participants);
-
-    validate_participants_exist(&participants, chat_id, database).await?;
-
-    database
-        .lock()
-        .await
-        .remove_participants_if_exist(chat_id, &participants)?;
+    endpoints::handle_remove_participants(chat_id, database, payload).await?;
     Ok(())
 }
 
@@ -488,15 +405,10 @@ async fn handle_list_participants<D: Database>(
     database: &Arc<Mutex<D>>,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let mut participants = database.lock().await.get_participants(chat_id)?;
-    participants.sort();
-
-    let result = format_simple_list(&participants);
-
+    let result = endpoints::handle_list_participants(chat_id, database).await?;
     bot.send_message(msg.chat.id, result)
         .await
         .map_err(|e| TelegramError::new("cannot send participant list", e))?;
-
     Ok(())
 }
 
@@ -506,22 +418,7 @@ async fn handle_add_participant_aliases<D: Database>(
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let (participant, aliases) = parse_participant_and_aliases(payload)?;
-    validate_participant_name(&participant)?;
-    validate_alias_names(&aliases)?;
-    debug!(
-        "Adding aliases to participant named {participant}. Aliases: {:#?}",
-        aliases
-    );
-
-    validate_participant_exists(&participant, chat_id, database).await?;
-    validate_aliases_do_not_exist(&participant, &aliases, chat_id, database).await?;
-
-    database
-        .lock()
-        .await
-        .add_aliases_if_not_exist(chat_id, &participant, &aliases)?;
-
+    endpoints::handle_add_participant_aliases(chat_id, database, payload).await?;
     Ok(())
 }
 
@@ -531,22 +428,7 @@ async fn handle_remove_participant_aliases<D: Database>(
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let (participant, aliases) = parse_participant_and_aliases(payload)?;
-    validate_participant_name(&participant)?;
-    validate_alias_names(&aliases)?;
-    debug!(
-        "Removing aliases from participant named {participant}. Aliases: {:#?}",
-        aliases
-    );
-
-    validate_participant_exists(&participant, chat_id, database).await?;
-    validate_aliases_exist(&participant, &aliases, chat_id, database).await?;
-
-    database
-        .lock()
-        .await
-        .remove_aliases_if_exist(chat_id, &participant, &aliases)?;
-
+    endpoints::handle_remove_participant_aliases(chat_id, database, payload).await?;
     Ok(())
 }
 
@@ -557,19 +439,7 @@ async fn handle_list_participant_aliases<D: Database>(
     participant: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let participant = participant.trim();
-    validate_participant_name(participant)?;
-    debug!("Listing all aliases of participant: {participant}");
-
-    validate_participant_exists(participant, chat_id, database).await?;
-
-    let mut aliases = database
-        .lock()
-        .await
-        .get_participant_aliases(chat_id, participant)?;
-    aliases.sort();
-
-    let result = format_simple_list(&aliases);
+    let result = endpoints::handle_list_participant_aliases(chat_id, database, participant).await?;
     bot.send_message(msg.chat.id, result)
         .await
         .map_err(|e| TelegramError::new("cannot send participant alias list", e))?;
@@ -583,15 +453,7 @@ async fn handle_add_group<D: Database>(
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let group_name = group_name.trim();
-    validate_group_name(group_name)?;
-    debug!("Creating group named {group_name}");
-
-    database
-        .lock()
-        .await
-        .add_group_if_not_exists(chat_id, group_name)?;
-
+    endpoints::handle_add_group(chat_id, database, group_name).await?;
     Ok(())
 }
 
@@ -601,17 +463,7 @@ async fn handle_remove_group<D: Database>(
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let group_name = group_name.trim();
-    validate_group_name(group_name)?;
-    debug!("Removing group named {group_name}");
-
-    validate_group_exists(group_name, chat_id, database).await?;
-
-    database
-        .lock()
-        .await
-        .remove_group_if_exists(chat_id, group_name)?;
-
+    endpoints::handle_remove_group(chat_id, database, group_name).await?;
     Ok(())
 }
 
@@ -621,22 +473,7 @@ async fn handle_add_group_members<D: Database>(
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let (group_name, members) = parse_group_and_members(payload)?;
-    validate_group_name(&group_name)?;
-    validate_participant_names(&members)?;
-    debug!(
-        "Adding group members to group named {group_name}. Members: {:#?}",
-        members
-    );
-
-    validate_group_exists(&group_name, chat_id, database).await?;
-    validate_participants_exist(&members, chat_id, database).await?;
-
-    database
-        .lock()
-        .await
-        .add_group_members_if_not_exist(chat_id, &group_name, &members)?;
-
+    endpoints::handle_add_group_members(chat_id, database, payload).await?;
     Ok(())
 }
 
@@ -646,22 +483,7 @@ async fn handle_remove_group_members<D: Database>(
     payload: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let (group_name, members) = parse_group_and_members(payload)?;
-    validate_group_name(&group_name)?;
-    validate_participant_names(&members)?;
-    debug!(
-        "Removing group members from group named {group_name}. Members: {:#?}",
-        members
-    );
-
-    validate_group_exists(&group_name, chat_id, database).await?;
-    validate_participants_exist(&members, chat_id, database).await?;
-
-    database
-        .lock()
-        .await
-        .remove_group_members_if_exist(chat_id, &group_name, &members)?;
-
+    endpoints::handle_remove_group_members(chat_id, database, payload).await?;
     Ok(())
 }
 
@@ -671,15 +493,10 @@ async fn handle_list_groups<D: Database>(
     database: &Arc<Mutex<D>>,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let mut groups = database.lock().await.get_groups(chat_id)?;
-    groups.sort();
-
-    let result = format_simple_list(&groups);
-
+    let result = endpoints::handle_list_groups(chat_id, database).await?;
     bot.send_message(msg.chat.id, result)
         .await
         .map_err(|e| TelegramError::new("cannot send group list", e))?;
-
     Ok(())
 }
 
@@ -690,23 +507,10 @@ async fn handle_list_group_members<D: Database>(
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let group_name = group_name.trim();
-    validate_group_name(group_name)?;
-    debug!("Listing all members of group: {group_name}");
-
-    validate_group_exists(group_name, chat_id, database).await?;
-
-    let mut members = database
-        .lock()
-        .await
-        .get_group_members(chat_id, group_name)?;
-    members.sort();
-
-    let result = format_simple_list(&members);
+    let result = endpoints::handle_list_group_members(chat_id, database, group_name).await?;
     bot.send_message(msg.chat.id, result)
         .await
         .map_err(|e| TelegramError::new("cannot send group member list", e))?;
-
     Ok(())
 }
 
