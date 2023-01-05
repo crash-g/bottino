@@ -3,7 +3,7 @@
 //! and composing the actual output string.
 
 use std::iter::repeat;
-use teloxide::utils::markdown::{bold, escape};
+use teloxide::utils::markdown::{bold, code_inline, escape};
 
 use crate::types::{Amount, MoneyExchange, SavedExpense, SavedParticipant};
 
@@ -86,7 +86,7 @@ pub fn format_balance(exchanges: &Vec<MoneyExchange>) -> String {
 }
 
 fn format_exchange(exchange: &MoneyExchange, target_length: usize) -> String {
-    // We make sure that the amounts are always aligned, by padding the debtors where needed:
+    // We make sure that the amounts are always aligned, by padding the debtors where needed.
     let debtor = if exchange.debtor.len() < target_length {
         exchange.debtor.clone() + &make_string_of_char(' ', target_length - exchange.debtor.len())
     } else {
@@ -95,11 +95,14 @@ fn format_exchange(exchange: &MoneyExchange, target_length: usize) -> String {
 
     let amount = exchange.amount as f64 / AMOUNT_TO_FLOAT_DIVISOR;
 
+    // We need to use code_inline to ensure that Telegram uses a monospaced font, otherwise
+    // the padding we add will still not be sufficient to get aligned amounts. For visual consistency,
+    // we use code_inline on the creditor too.
     format!(
-        "💰  {} 💸  {}  {} 🤑",
-        debtor,
+        "💸 {} {} {}",
+        code_inline(&debtor),
         bold(&escape(&format!("{:2}", amount))),
-        exchange.creditor
+        code_inline(&exchange.creditor)
     )
 }
 
@@ -144,7 +147,13 @@ mod tests {
 
         let result = format_balance(&exchanges);
 
-        assert_eq!("💰  aa   💸  *34*  bb 🤑\n💰  aacc 💸  *21\\.12*  bb 🤑\n💰  abc  💸  *323\\.23*  bb 🤑\n", result);
+        assert_eq!(
+            r"💸 `aa  ` *34* `bb`
+💸 `aacc` *21\.12* `bb`
+💸 `abc ` *323\.23* `bb`
+",
+            result
+        );
     }
 
     #[test]

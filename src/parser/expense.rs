@@ -280,14 +280,7 @@ mod tests {
             parse_expense("creditor1\ncreditor2/-21.1\n34.3\ndebtor1\ndebtor2/3\ndebtor3/1 - message\non\nmany\nlines")?;
         assert_eq!(expense.participants.len(), 5);
         assert_eq!(expense.amount, 3430);
-        assert_eq!(
-            expense
-                .message
-                .unwrap()
-                .split('\n')
-                .count(),
-            4
-        );
+        assert_eq!(expense.message.unwrap().split('\n').count(), 4);
         assert_eq!(rest, "");
 
         Ok(())
