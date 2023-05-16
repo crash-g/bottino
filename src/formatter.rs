@@ -3,6 +3,7 @@
 //! and composing the actual output string.
 
 use std::iter::repeat;
+use chrono::{Local, DateTime};
 use teloxide::utils::markdown::{bold, code_inline, escape};
 
 use crate::types::{Amount, MoneyExchange, SavedExpense, SavedParticipant};
@@ -22,8 +23,9 @@ pub fn format_list_expenses(expenses: &[SavedExpense]) -> String {
 
 fn format_expense(expense: &SavedExpense) -> String {
     let result = format!(
-        "💰  {}: {} {} {}",
-        expense.id,
+        "💰  {} {}: {} {} {}",
+        bold(&format!("{}", expense.id)),
+        escape(&format!("({})", DateTime::<Local>::from(expense.message_ts).date_naive())),
         format_participants(expense, true),
         bold(&escape(&format_amount(expense.amount))),
         format_participants(expense, false)
@@ -37,7 +39,7 @@ fn format_expense(expense: &SavedExpense) -> String {
                 .clone()
                 .expect("just checked the option is non-empty!")
         ));
-        format!("{} {}", result, message)
+        format!("{} {}", result.trim(), message)
     } else {
         result
     }
@@ -123,6 +125,8 @@ pub fn format_simple_list<T: AsRef<str>>(elements: &[T]) -> String {
 
 #[cfg(test)]
 mod tests {
+    use chrono::DateTime;
+
     use super::*;
 
     #[test]
@@ -132,9 +136,11 @@ mod tests {
             SavedParticipant::new_debtor("bbb", Some(123)),
             SavedParticipant::new_creditor("cccc", None),
         ];
-        let expense = SavedExpense::new(1, participants, 4343, None);
+        let date_str = "2023-05-01 10:00:00 +02:00";
+        let message_ts = DateTime::from(DateTime::parse_from_str(date_str, "%Y-%m-%d %H:%M:%S %z").unwrap());
+        let expense = SavedExpense::new(1, participants, 4343, None, message_ts);
         let result = format_expense(&expense);
-        assert_eq!("💰  1: cccc  *43\\.43* aa bbb/1\\.23 ", result);
+        assert_eq!("💰  *1* \\(2023\\-05\\-01\\): cccc  *43\\.43* aa bbb/1\\.23 ", result);
     }
 
     #[test]

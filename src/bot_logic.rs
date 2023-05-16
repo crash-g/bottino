@@ -83,7 +83,7 @@ pub fn compute_exchanges(expenses: Vec<SavedExpense>) -> Vec<MoneyExchange> {
     result
 }
 
-/// Some debts cannot be split exactly (there are no fraction of a cent),
+/// Some debts cannot be split exactly (there are no fractions of a cent),
 /// so we tolerate one cent of error when comparing equality.
 fn are_amount_equal(d: i64, c: i64) -> bool {
     (d + c).abs() < 1
@@ -167,6 +167,8 @@ fn compute_credits(expense: &SavedExpense, balance: &mut HashMap<String, i64>) {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{DateTime, Utc};
+
     use crate::types::SavedParticipant;
 
     use super::*;
@@ -183,6 +185,7 @@ mod tests {
                 ],
                 2340,
                 None,
+                DateTime::<Utc>::MIN_UTC,
             ),
             SavedExpense::new(
                 2,
@@ -193,6 +196,7 @@ mod tests {
                 ],
                 3300,
                 None,
+                DateTime::<Utc>::MIN_UTC,
             ),
         ];
 
@@ -215,6 +219,7 @@ mod tests {
                 ],
                 2340,
                 None,
+                DateTime::<Utc>::MIN_UTC,
             ),
             SavedExpense::new(
                 2,
@@ -225,6 +230,7 @@ mod tests {
                 ],
                 3300,
                 None,
+                DateTime::<Utc>::MIN_UTC,
             ),
         ];
 

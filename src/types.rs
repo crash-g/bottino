@@ -1,5 +1,7 @@
 //! The definition of data structures used in multiple modules.
 
+use chrono::{DateTime, Utc};
+
 /// A certain quantity of money.
 ///
 /// The amount is an integer because we assume that all numbers have two decimal
@@ -40,6 +42,7 @@ pub struct SavedExpense {
     pub participants: Vec<SavedParticipant>,
     pub amount: Amount,
     pub message: Option<String>,
+    pub message_ts: DateTime<Utc>,
 }
 
 /// A participant to an expense that is read from the database.
@@ -100,12 +103,14 @@ impl SavedExpense {
         participants: Vec<SavedParticipant>,
         amount: Amount,
         message: Option<String>,
+        message_ts: DateTime<Utc>,
     ) -> SavedExpense {
         SavedExpense {
             id,
             participants,
             amount,
             message,
+            message_ts,
         }
     }
 }
