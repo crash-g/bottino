@@ -39,6 +39,7 @@ pub struct ParsedParticipant {
 #[derive(Clone, Debug)]
 pub struct SavedExpense {
     pub id: i64,
+    pub is_active: bool,
     pub participants: Vec<SavedParticipant>,
     pub amount: Amount,
     pub message: Option<String>,
@@ -100,6 +101,7 @@ impl MoneyExchange {
 impl SavedExpense {
     pub fn new(
         id: i64,
+        is_active: bool,
         participants: Vec<SavedParticipant>,
         amount: Amount,
         message: Option<String>,
@@ -107,6 +109,7 @@ impl SavedExpense {
     ) -> SavedExpense {
         SavedExpense {
             id,
+            is_active,
             participants,
             amount,
             message,

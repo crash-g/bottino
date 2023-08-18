@@ -85,51 +85,60 @@ impl Database for SqliteDatabase {
         block_in_place(|| fn_impl().map_err(|e| map_error("cannot save expense with message", e)))
     }
 
-    fn get_active_expenses(&self, chat_id: i64) -> DatabaseResult<Vec<SavedExpense>> {
+    fn get_expenses(
+        &self,
+        chat_id: i64,
+        only_active: bool,
+    ) -> Result<Vec<SavedExpense>, DatabaseError> {
         let fn_impl = || {
-            let mut stmt = self.connection.prepare_cached(
-                "SELECT e.id, e.amount, e.message, e.message_ts, p.name, ep.is_creditor, ep.amount FROM expense e
+            let base_query = "SELECT
+                     e.id, e.settled_at is null is_active, e.amount, e.message, e.message_ts,
+                     p.name, ep.is_creditor, ep.amount
+                 FROM expense e
                  INNER JOIN expense_participant ep ON e.id = ep.expense_id
                  INNER JOIN participant p ON ep.participant_id = p.id
-                 WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL",
-            )?;
+                 WHERE e.chat_id = :chat_id AND e.deleted_at IS NULL";
+            let query = if only_active {
+                format!("{} AND e.settled_at IS NULL", base_query)
+            } else {
+                base_query.to_string()
+            };
+            let mut stmt = self.connection.prepare_cached(&query)?;
 
             let expense_iter = stmt.query_map(&[(":chat_id", &chat_id)], |row| {
-                Ok(ActiveExpenseQuery {
+                Ok(GetExpenseQuery {
                     id: row.get(0)?,
-                    e_amount: row.get(1)?,
-                    e_message: row.get(2)?,
-                    e_message_ts: row.get(3)?,
-                    p_name: row.get(4)?,
-                    p_is_creditor: row.get(5)?,
-                    p_amount: row.get(6)?,
+                    is_active: row.get(1)?,
+                    e_amount: row.get(2)?,
+                    e_message: row.get(3)?,
+                    e_message_ts: row.get(4)?,
+                    p_name: row.get(5)?,
+                    p_is_creditor: row.get(6)?,
+                    p_amount: row.get(7)?,
                 })
             })?;
 
             let expenses: Result<Vec<_>, _> = expense_iter.collect();
-            Ok(parse_active_expenses_query(expenses?))
+            Ok(parse_expenses_query(expenses?))
         };
 
-        block_in_place(|| fn_impl().map_err(|e| map_error("cannot get active expenses", e)))
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot get expenses", e)))
     }
 
-    fn get_active_expenses_with_limit(
+    fn get_expenses_with_limit(
         &self,
         chat_id: i64,
         start: usize,
         limit: usize,
-    ) -> DatabaseResult<Vec<SavedExpense>> {
+        only_active: bool,
+    ) -> Result<Vec<SavedExpense>, DatabaseError> {
         // It's sort of complex to run the query with a limit, so for now
         // we ask for everything and just slice the result.
 
-        let mut all_expenses = self.get_active_expenses(chat_id)?;
+        let mut all_expenses = self.get_expenses(chat_id, only_active)?;
         let num_expenses = all_expenses.len();
 
-        all_expenses.sort_by(|e1, e2| {
-            e2.id
-                .partial_cmp(&e1.id)
-                .expect("cannot sort active expenses")
-        });
+        all_expenses.sort_by(|e1, e2| e2.id.partial_cmp(&e1.id).expect("cannot sort expenses"));
 
         if start >= num_expenses {
             Ok(vec![])
@@ -667,22 +676,23 @@ impl Database for SqliteDatabase {
     }
 }
 
-fn parse_active_expenses_query(expenses: Vec<ActiveExpenseQuery>) -> Vec<SavedExpense> {
+fn parse_expenses_query(expenses: Vec<GetExpenseQuery>) -> Vec<SavedExpense> {
     let mut result = HashMap::new();
-    for active_expense in expenses {
-        let entry = result.entry(active_expense.id).or_insert_with(|| {
+    for expense in expenses {
+        let entry = result.entry(expense.id).or_insert_with(|| {
             SavedExpense::new(
-                active_expense.id,
+                expense.id,
+                expense.is_active,
                 vec![],
-                active_expense.e_amount,
-                active_expense.e_message,
-                active_expense.e_message_ts,
+                expense.e_amount,
+                expense.e_message,
+                expense.e_message_ts,
             )
         });
 
-        let name = &active_expense.p_name;
-        let amount = active_expense.p_amount;
-        let participant = if active_expense.p_is_creditor {
+        let name = &expense.p_name;
+        let amount = expense.p_amount;
+        let participant = if expense.p_is_creditor {
             SavedParticipant::new_creditor(name, amount)
         } else {
             SavedParticipant::new_debtor(name, amount)
@@ -693,8 +703,9 @@ fn parse_active_expenses_query(expenses: Vec<ActiveExpenseQuery>) -> Vec<SavedEx
     result.into_iter().map(|(_, e)| e).collect()
 }
 
-struct ActiveExpenseQuery {
+struct GetExpenseQuery {
     id: i64,
+    is_active: bool,
     e_amount: i64,
     e_message: Option<String>,
     e_message_ts: DateTime<Utc>,
@@ -721,6 +732,8 @@ mod tests {
 
     use tempdir::TempDir;
 
+    use crate::types::ParsedParticipant;
+
     use super::*;
 
     fn temp_database() -> anyhow::Result<(SqliteDatabase, TempDir)> {
@@ -734,6 +747,76 @@ mod tests {
 
     fn to_hash_set<S: AsRef<str>>(v: Vec<S>) -> HashSet<String> {
         v.into_iter().map(|s| s.as_ref().to_string()).collect()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_get_expenses_with_limit() -> anyhow::Result<()> {
+        let (mut database, _tmp_dir) = temp_database()?;
+
+        let chat_id = 1;
+
+        let participants = &["aa", "bb", "cc", "dd", "ee"];
+        database.add_participants_if_not_exist(chat_id, participants)?;
+
+        // Add expenses.
+        let expense = ParsedExpense::new(
+            vec![
+                ParsedParticipant::new_creditor("aa", None),
+                ParsedParticipant::new_creditor("bb", None),
+                ParsedParticipant::new_debtor("cc", None),
+                ParsedParticipant::new_debtor("dd", None),
+            ],
+            1,
+            None,
+        );
+        database.save_expense_with_message(chat_id, expense, DateTime::<Utc>::MIN_UTC)?;
+        let expense = ParsedExpense::new(
+            vec![
+                ParsedParticipant::new_creditor("aa", None),
+                ParsedParticipant::new_debtor("dd", None),
+            ],
+            2,
+            None,
+        );
+        database.save_expense_with_message(chat_id, expense, DateTime::<Utc>::MIN_UTC)?;
+        let expense = ParsedExpense::new(
+            vec![
+                ParsedParticipant::new_creditor("bb", None),
+                ParsedParticipant::new_debtor("aa", None),
+            ],
+            3,
+            None,
+        );
+        database.save_expense_with_message(chat_id, expense, DateTime::<Utc>::MIN_UTC)?;
+        // Reset and add one more.
+        database.mark_all_as_settled(chat_id)?;
+        let expense = ParsedExpense::new(
+            vec![
+                ParsedParticipant::new_creditor("dd", None),
+                ParsedParticipant::new_debtor("bb", None),
+            ],
+            4,
+            None,
+        );
+        database.save_expense_with_message(chat_id, expense, DateTime::<Utc>::MIN_UTC)?;
+
+        // Asking only active expenses returns one element.
+        let expenses = database.get_expenses_with_limit(chat_id, 0, 2, true)?;
+        assert_eq!(1, expenses.len());
+        assert_eq!(4, expenses.get(0).unwrap().amount);
+
+        // Asking all expenses return them all.
+        let expenses = database.get_expenses_with_limit(chat_id, 0, 10, false)?;
+        assert_eq!(4, expenses.len());
+
+        // Asking all expenses with low limit returns only some (newest first).
+        let expenses = database.get_expenses_with_limit(chat_id, 0, 2, false)?;
+        assert_eq!(2, expenses.len());
+        assert_eq!(4, expenses.get(0).unwrap().amount);
+        assert_eq!(3, expenses.get(1).unwrap().amount);
+
+        Ok(())
     }
 
     #[test]
@@ -824,8 +907,9 @@ mod tests {
     #[test]
     fn test_conversion() {
         let expenses = vec![
-            ActiveExpenseQuery {
+            GetExpenseQuery {
                 id: 1,
+                is_active: true,
                 e_amount: 300,
                 e_message: None,
                 e_message_ts: DateTime::<Utc>::MIN_UTC,
@@ -833,8 +917,9 @@ mod tests {
                 p_is_creditor: true,
                 p_amount: None,
             },
-            ActiveExpenseQuery {
+            GetExpenseQuery {
                 id: 1,
+                is_active: true,
                 e_amount: 300,
                 e_message: None,
                 e_message_ts: DateTime::<Utc>::MIN_UTC,
@@ -842,8 +927,9 @@ mod tests {
                 p_is_creditor: false,
                 p_amount: None,
             },
-            ActiveExpenseQuery {
+            GetExpenseQuery {
                 id: 1,
+                is_active: true,
                 e_amount: 300,
                 e_message: None,
                 e_message_ts: DateTime::<Utc>::MIN_UTC,
@@ -851,8 +937,9 @@ mod tests {
                 p_is_creditor: false,
                 p_amount: Some(100),
             },
-            ActiveExpenseQuery {
+            GetExpenseQuery {
                 id: 2,
+                is_active: true,
                 e_amount: 5400,
                 e_message: None,
                 e_message_ts: DateTime::<Utc>::MIN_UTC,
@@ -860,8 +947,9 @@ mod tests {
                 p_is_creditor: true,
                 p_amount: None,
             },
-            ActiveExpenseQuery {
+            GetExpenseQuery {
                 id: 2,
+                is_active: true,
                 e_amount: 5400,
                 e_message: None,
                 e_message_ts: DateTime::<Utc>::MIN_UTC,
@@ -871,7 +959,7 @@ mod tests {
             },
         ];
 
-        let result = parse_active_expenses_query(expenses);
+        let result = parse_expenses_query(expenses);
         dbg!("{}", result);
     }
 }
