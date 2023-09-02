@@ -7,6 +7,7 @@
 ## Changed
 
 - The page size for `/list` and `/listall` has been lowered from 20 to 15
+- The list of exchanges returned by `/balance` is now sorted (first by debtor and then by creditor)
 
 # 0.1.1
 
