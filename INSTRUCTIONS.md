@@ -217,7 +217,7 @@ Before using a participant in an expense their name must be registered with this
 
 The command accepts a list of space-separated participant names: there must be at least one
 participant, or an error message is returned. If one or more participants already exist, they are
-silently ignored. If one or more participants do not exist, an error is returned.
+silently ignored.
 
 Examples:
 
@@ -245,14 +245,14 @@ This command is used to get the list of all registered participants. No argument
 
 As for participants, groups must be registered before being used in an expense.
 
-The command has the following syntax:
+If the group already exists, nothing happens.
+
+Examples:
 
 ```
-/addgroup group_name [member...]
+/addgroup group_name
 ```
 
-The initial list of members is optional, but the group name is required. If the group already exists
-nothing happens.
 
 ## Remove group
 
