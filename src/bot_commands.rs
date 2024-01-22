@@ -1,6 +1,9 @@
 //! Definition of Telegram bot commands and handlers.
 
-use std::{collections::{HashMap, hash_map::Entry}, sync::Arc};
+use std::{
+    collections::{hash_map::Entry, HashMap},
+    sync::Arc,
+};
 
 use log::{debug, error, info};
 use teloxide::{
@@ -16,7 +19,7 @@ use tokio::sync::Mutex;
 
 use crate::{
     bot_logic::compute_exchanges,
-    error::{BotError, InputError},
+    error::{InputError, TelegramError},
     validator::{validate_group_name, validate_participant_names},
 };
 use crate::{
@@ -172,7 +175,7 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
 async fn handle_help(bot: &Bot, msg: &Message) -> HandlerResult {
     bot.send_message(msg.chat.id, Command::descriptions().to_string())
         .await
-        .map_err(|e| BotError::telegram("cannot send help", e))?;
+        .map_err(|e| TelegramError::new("cannot send help", e))?;
     Ok(())
 }
 
@@ -194,8 +197,7 @@ async fn handle_expense<M: Memory>(
     memory
         .lock()
         .await
-        .save_expense_with_message(chat_id, expense, message_ts)
-        .map_err(|e| BotError::database("cannot save expense", e))?;
+        .save_expense_with_message(chat_id, expense, message_ts)?;
 
     Ok(())
 }
@@ -237,29 +239,21 @@ async fn handle_balance<M: Memory>(
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
 
-    let active_expenses = memory
-        .lock()
-        .await
-        .get_active_expenses(chat_id)
-        .map_err(|e| BotError::database("cannot get active expenses", e))?;
+    let active_expenses = memory.lock().await.get_active_expenses(chat_id)?;
     let exchanges = compute_exchanges(active_expenses);
     let formatted_balance = format_balance(&exchanges);
 
     bot.send_message(msg.chat.id, formatted_balance)
         .parse_mode(ParseMode::MarkdownV2)
         .await
-        .map_err(|e| BotError::telegram("cannot send balance", e))?;
+        .map_err(|e| TelegramError::new("cannot send balance", e))?;
     Ok(())
 }
 
 async fn handle_reset<M: Memory>(msg: &Message, memory: &Arc<Mutex<M>>) -> HandlerResult {
     let chat_id = msg.chat.id.0;
 
-    memory
-        .lock()
-        .await
-        .mark_all_as_settled(chat_id)
-        .map_err(|e| BotError::database("cannot mark all as settled", e))?;
+    memory.lock().await.mark_all_as_settled(chat_id)?;
     Ok(())
 }
 
@@ -281,11 +275,7 @@ async fn handle_list<M: Memory>(
 
     // Considering how we run the query, it is not easy to use a LIMIT, so
     // we ask for everything and just slice the result.
-    let mut active_expenses = memory
-        .lock()
-        .await
-        .get_active_expenses(chat_id)
-        .map_err(|e| BotError::database("cannot get active expenses", e))?;
+    let mut active_expenses = memory.lock().await.get_active_expenses(chat_id)?;
 
     active_expenses.sort_by(|e1, e2| {
         e2.id
@@ -298,7 +288,7 @@ async fn handle_list<M: Memory>(
     bot.send_message(msg.chat.id, result)
         .parse_mode(ParseMode::MarkdownV2)
         .await
-        .map_err(|e| BotError::telegram("cannot send expense list", e))?;
+        .map_err(|e| TelegramError::new("cannot send expense list", e))?;
 
     Ok(())
 }
@@ -313,11 +303,7 @@ async fn handle_delete<M: Memory>(
         .parse()
         .map_err(|_| InputError::invalid_expense_id(expense_id.to_string()))?;
 
-    memory
-        .lock()
-        .await
-        .delete_expense(chat_id, expense_id)
-        .map_err(|e| BotError::database("cannot delete expense", e))?;
+    memory.lock().await.delete_expense(chat_id, expense_id)?;
     Ok(())
 }
 
@@ -333,8 +319,7 @@ async fn handle_add_participants<M: Memory>(
     memory
         .lock()
         .await
-        .add_participants_if_not_exist(chat_id, &participants)
-        .map_err(|e| BotError::database("cannot add participants", e))?;
+        .add_participants_if_not_exist(chat_id, &participants)?;
     Ok(())
 }
 
@@ -350,8 +335,7 @@ async fn handle_remove_participants<M: Memory>(
     memory
         .lock()
         .await
-        .remove_participants_if_exist(chat_id, &participants)
-        .map_err(|e| BotError::database("cannot remove participants", e))?;
+        .remove_participants_if_exist(chat_id, &participants)?;
     Ok(())
 }
 
@@ -361,17 +345,13 @@ async fn handle_list_participants<M: Memory>(
     memory: &Arc<Mutex<M>>,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let participants = memory
-        .lock()
-        .await
-        .get_participants(chat_id)
-        .map_err(|e| BotError::database("cannot get participants", e))?;
+    let participants = memory.lock().await.get_participants(chat_id)?;
 
     let result = format_simple_list(&participants);
 
     bot.send_message(msg.chat.id, result)
         .await
-        .map_err(|e| BotError::telegram("cannot send participant list", e))?;
+        .map_err(|e| TelegramError::new("cannot send participant list", e))?;
 
     Ok(())
 }
@@ -395,15 +375,13 @@ async fn handle_add_group<M: Memory>(
     memory
         .lock()
         .await
-        .create_group_if_not_exists(chat_id, &group_name)
-        .map_err(|e| BotError::database("cannot create group", e))?;
+        .create_group_if_not_exists(chat_id, &group_name)?;
 
     if !members.is_empty() {
         memory
             .lock()
             .await
-            .add_group_members_if_not_exist(chat_id, &group_name, &members)
-            .map_err(|e| BotError::database("cannot add group members", e))?;
+            .add_group_members_if_not_exist(chat_id, &group_name, &members)?;
     }
     Ok(())
 }
@@ -422,8 +400,7 @@ async fn handle_delete_group<M: Memory>(
     memory
         .lock()
         .await
-        .delete_group_if_exists(chat_id, group_name)
-        .map_err(|e| BotError::database("cannot delete group", e))?;
+        .delete_group_if_exists(chat_id, group_name)?;
 
     Ok(())
 }
@@ -448,8 +425,7 @@ async fn handle_add_group_members<M: Memory>(
     memory
         .lock()
         .await
-        .add_group_members_if_not_exist(chat_id, &group_name, &members)
-        .map_err(|e| BotError::database("cannot add group members", e))?;
+        .add_group_members_if_not_exist(chat_id, &group_name, &members)?;
 
     Ok(())
 }
@@ -474,8 +450,7 @@ async fn handle_remove_group_members<M: Memory>(
     memory
         .lock()
         .await
-        .remove_group_members_if_exist(chat_id, &group_name, &members)
-        .map_err(|e| BotError::database("cannot remove group members", e))?;
+        .remove_group_members_if_exist(chat_id, &group_name, &members)?;
 
     Ok(())
 }
@@ -486,17 +461,13 @@ async fn handle_list_groups<M: Memory>(
     memory: &Arc<Mutex<M>>,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let groups = memory
-        .lock()
-        .await
-        .get_groups(chat_id)
-        .map_err(|e| BotError::database("cannot get groups", e))?;
+    let groups = memory.lock().await.get_groups(chat_id)?;
 
     let result = format_simple_list(&groups);
 
     bot.send_message(msg.chat.id, result)
         .await
-        .map_err(|e| BotError::telegram("cannot send group list", e))?;
+        .map_err(|e| TelegramError::new("cannot send group list", e))?;
 
     Ok(())
 }
@@ -513,16 +484,12 @@ async fn handle_list_group_members<M: Memory>(
 
     validate_group_exists(group_name, chat_id, memory).await?;
 
-    let members = memory
-        .lock()
-        .await
-        .get_group_members(chat_id, group_name)
-        .map_err(|e| BotError::database("cannot get group members", e))?;
+    let members = memory.lock().await.get_group_members(chat_id, group_name)?;
 
     let result = format_simple_list(&members);
     bot.send_message(msg.chat.id, result)
         .await
-        .map_err(|e| BotError::telegram("cannot send group member list", e))?;
+        .map_err(|e| TelegramError::new("cannot send group member list", e))?;
 
     Ok(())
 }

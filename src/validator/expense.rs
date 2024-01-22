@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use crate::error::{BotError, InputError};
+use crate::error::InputError;
 use crate::memory::Memory;
 use crate::types::{ParsedExpense, ParsedParticipant};
 
@@ -33,8 +33,7 @@ pub async fn validate_and_resolve_groups<M: Memory>(
             let members = memory
                 .lock()
                 .await
-                .get_group_members(chat_id, &participant.name)
-                .map_err(|e| BotError::database("cannot get group members", e))?;
+                .get_group_members(chat_id, &participant.name)?;
 
             for member in members {
                 let p = if participant.is_creditor() {

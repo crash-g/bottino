@@ -2,14 +2,17 @@
 
 use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
-use log::{debug, info};
+use log::debug;
 use rusqlite::{params, CachedStatement, Connection, OptionalExtension, Params};
 use std::collections::HashMap;
 use tokio::task::block_in_place;
 
-use crate::types::{ParsedExpense, SavedExpense, SavedParticipant};
+use crate::{
+    error::DatabaseError,
+    types::{ParsedExpense, SavedExpense, SavedParticipant},
+};
 
-use super::Memory;
+use super::{Memory, DatabaseResult};
 
 mod schema;
 
@@ -18,10 +21,12 @@ pub struct SqliteMemory {
 }
 
 impl SqliteMemory {
-    pub fn new() -> anyhow::Result<SqliteMemory> {
+    pub fn new() -> DatabaseResult<SqliteMemory> {
         block_in_place(|| {
-            let connection = Connection::open("treasurer.db")?;
-            schema::create_all_tables(&connection)?;
+            let connection = Connection::open("treasurer.db")
+                .map_err(|e| DatabaseError::new("cannot open database", e.into()))?;
+            schema::create_all_tables(&connection)
+                .map_err(|e| DatabaseError::new("cannot create tables", e))?;
             Ok(SqliteMemory { connection })
         })
     }
@@ -33,8 +38,8 @@ impl Memory for SqliteMemory {
         chat_id: i64,
         expense: ParsedExpense,
         message_ts: DateTime<Utc>,
-    ) -> anyhow::Result<()> {
-        block_in_place(|| {
+    ) -> DatabaseResult<()> {
+        let fn_impl = || {
             let tx = self.connection.transaction()?;
 
             let expense_id: i64 = {
@@ -77,22 +82,27 @@ impl Memory for SqliteMemory {
             tx.commit()?;
 
             Ok(())
+        };
+
+        block_in_place(|| {
+            fn_impl().map_err(|e| DatabaseError::new("cannot save expense with message", e))
         })
     }
 
-    fn get_active_expenses(&self, chat_id: i64) -> anyhow::Result<Vec<SavedExpense>> {
-        block_in_place(|| {
-            let stmt = self
-                .connection
-                .prepare_cached(
-                    "SELECT e.id, e.amount, e.message, p.name, ep.is_creditor, ep.amount FROM expense e
+    fn get_active_expenses(&self, chat_id: i64) -> DatabaseResult<Vec<SavedExpense>> {
+        let fn_impl = || {
+            let stmt = self.connection.prepare_cached(
+                "SELECT e.id, e.amount, e.message, p.name, ep.is_creditor, ep.amount FROM expense e
                  INNER JOIN expense_participant ep ON e.id = ep.expense_id
                  INNER JOIN participant p ON ep.participant_id = p.id
                  WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL",
-                )
-                .with_context(|| "Could not prepare get active expense statement")?;
+            )?;
 
             query_active_expenses(stmt, &[(":chat_id", &chat_id)])
+        };
+
+        block_in_place(|| {
+            fn_impl().map_err(|e| DatabaseError::new("cannot get active expenses", e))
         })
     }
 
@@ -103,28 +113,29 @@ impl Memory for SqliteMemory {
         &self,
         chat_id: i64,
         limit: usize,
-    ) -> anyhow::Result<Vec<SavedExpense>> {
-        block_in_place(|| {
-            let stmt = self
-                .connection
-                .prepare_cached(
-                    "SELECT e.id, e.amount, e.message, p.name, ep.is_creditor, ep.amount FROM expense e
+    ) -> DatabaseResult<Vec<SavedExpense>> {
+        let fn_impl = || {
+            let stmt = self.connection.prepare_cached(
+                "SELECT e.id, e.amount, e.message, p.name, ep.is_creditor, ep.amount FROM expense e
                  INNER JOIN expense_participant ep ON e.id = p.expense_id
                  INNER JOIN participant p ON ep.participant_id = p.id
                  WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL
                  ORDER BY created_at DESC
                  LIMIT :limit",
-                )
-                .with_context(|| "Could not prepare get active expense with limit statement")?;
+            )?;
 
             let limit = limit as i64;
             query_active_expenses(stmt, &[(":chat_id", &chat_id), (":limit", &limit)])
+        };
+
+        block_in_place(|| {
+            fn_impl().map_err(|e| DatabaseError::new("cannot get active expenses with limit", e))
         })
     }
 
-    fn mark_all_as_settled(&self, chat_id: i64) -> anyhow::Result<()> {
+    fn mark_all_as_settled(&self, chat_id: i64) -> DatabaseResult<()> {
         debug!("Marking all as settled using current timestamp. Chat ID: {chat_id}");
-        block_in_place(|| {
+        let fn_impl = || {
             self.connection
                 .execute(
                     "UPDATE expense SET settled_at = CURRENT_TIMESTAMP
@@ -134,12 +145,16 @@ impl Memory for SqliteMemory {
                 .with_context(|| "Query to set all settled failed")?;
 
             Ok(())
+        };
+
+        block_in_place(|| {
+            fn_impl().map_err(|e| DatabaseError::new("cannot mark all as settled", e))
         })
     }
 
-    fn delete_expense(&self, chat_id: i64, expense_id: i64) -> anyhow::Result<()> {
-        info!("Deleting expense. Chat ID: {chat_id}. Expense ID: {expense_id}");
-        block_in_place(|| {
+    fn delete_expense(&self, chat_id: i64, expense_id: i64) -> DatabaseResult<()> {
+        debug!("Deleting expense. Chat ID: {chat_id}. Expense ID: {expense_id}");
+        let fn_impl = || {
             self.connection
                 .execute(
                     "UPDATE expense SET deleted_at = CURRENT_TIMESTAMP
@@ -149,15 +164,17 @@ impl Memory for SqliteMemory {
                 .with_context(|| "Query to delete expense failed")?;
 
             Ok(())
-        })
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot delete expense", e)))
     }
 
     fn add_participants_if_not_exist<T: AsRef<str>>(
         &mut self,
         chat_id: i64,
         participants: &[T],
-    ) -> anyhow::Result<()> {
-        block_in_place(|| {
+    ) -> DatabaseResult<()> {
+        let mut fn_impl = || {
             let tx = self.connection.transaction()?;
 
             {
@@ -176,23 +193,23 @@ impl Memory for SqliteMemory {
             tx.commit()?;
 
             Ok(())
-        })
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot add participants", e)))
     }
 
     fn remove_participants_if_exist<T: AsRef<str>>(
         &mut self,
         chat_id: i64,
         participants: &[T],
-    ) -> anyhow::Result<()> {
-        block_in_place(|| {
+    ) -> DatabaseResult<()> {
+        let mut fn_impl = || {
             let tx = self.connection.transaction()?;
 
             {
-                let mut delete_participant_stmt = tx
-                    .prepare_cached(
-                        "DELETE FROM participant WHERE chat_id = ?1 AND name = ?2 RETURNING id",
-                    )
-                    .with_context(|| "Could not prepare remove participants statement")?;
+                let mut delete_participant_stmt = tx.prepare_cached(
+                    "DELETE FROM participant WHERE chat_id = ?1 AND name = ?2 RETURNING id",
+                )?;
 
                 for participant in participants {
                     let participant_id: Option<i64> = delete_participant_stmt
@@ -216,11 +233,15 @@ impl Memory for SqliteMemory {
             tx.commit()?;
 
             Ok(())
+        };
+
+        block_in_place(|| {
+            fn_impl().map_err(|e| DatabaseError::new("cannot remove participants", e))
         })
     }
 
-    fn get_participants(&self, chat_id: i64) -> anyhow::Result<Vec<String>> {
-        block_in_place(|| {
+    fn get_participants(&self, chat_id: i64) -> DatabaseResult<Vec<String>> {
+        let fn_impl = || {
             let mut stmt = self
                 .connection
                 .prepare_cached("SELECT name FROM participant WHERE chat_id = :chat_id")
@@ -232,23 +253,27 @@ impl Memory for SqliteMemory {
 
             let participants = participant_iter.collect::<Result<_, _>>()?;
             Ok(participants)
-        })
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot get participants", e)))
     }
 
-    fn create_group_if_not_exists(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()> {
-        block_in_place(|| {
+    fn create_group_if_not_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
+        let fn_impl = || {
             self.connection.execute(
                 "INSERT OR IGNORE INTO participant_group (chat_id, name) VALUES (?1, ?2)",
                 params![&chat_id, &group_name],
             )?;
 
             Ok(())
-        })
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot create group", e)))
     }
 
-    fn delete_group_if_exists(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()> {
-        info!("Deleting group. Chat ID: {chat_id}. Group name: {group_name}");
-        block_in_place(|| {
+    fn delete_group_if_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
+        debug!("Deleting group. Chat ID: {chat_id}. Group name: {group_name}");
+        let mut fn_impl = || {
             let tx = self.connection.transaction()?;
 
             let group_id: Option<i64> = tx
@@ -269,7 +294,9 @@ impl Memory for SqliteMemory {
             tx.commit()?;
 
             Ok(())
-        })
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot delete group", e)))
     }
 
     fn add_group_members_if_not_exist<T: AsRef<str>>(
@@ -277,8 +304,8 @@ impl Memory for SqliteMemory {
         chat_id: i64,
         group_name: &str,
         members: &[T],
-    ) -> anyhow::Result<()> {
-        block_in_place(|| {
+    ) -> DatabaseResult<()> {
+        let mut fn_impl = || {
             let tx = self.connection.transaction()?;
 
             let group_id: i64 = tx.query_row(
@@ -313,7 +340,9 @@ impl Memory for SqliteMemory {
             tx.commit()?;
 
             Ok(())
-        })
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot add group members", e)))
     }
 
     fn remove_group_members_if_exist<T: AsRef<str>>(
@@ -321,8 +350,8 @@ impl Memory for SqliteMemory {
         chat_id: i64,
         group_name: &str,
         members: &[T],
-    ) -> anyhow::Result<()> {
-        block_in_place(|| {
+    ) -> DatabaseResult<()> {
+        let mut fn_impl = || {
             let tx = self.connection.transaction()?;
 
             let group_id: i64 = tx.query_row(
@@ -347,11 +376,15 @@ impl Memory for SqliteMemory {
             tx.commit()?;
 
             Ok(())
+        };
+
+        block_in_place(|| {
+            fn_impl().map_err(|e| DatabaseError::new("cannot remove group members", e))
         })
     }
 
-    fn get_groups(&self, chat_id: i64) -> anyhow::Result<Vec<String>> {
-        block_in_place(|| {
+    fn get_groups(&self, chat_id: i64) -> DatabaseResult<Vec<String>> {
+        let fn_impl = || {
             let mut stmt = self
                 .connection
                 .prepare_cached("SELECT name FROM participant_group WHERE chat_id = :chat_id")
@@ -363,11 +396,13 @@ impl Memory for SqliteMemory {
 
             let groups = group_iter.collect::<Result<_, _>>()?;
             Ok(groups)
-        })
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot get groups", e)))
     }
 
-    fn group_exists(&self, chat_id: i64, group_name: &str) -> anyhow::Result<bool> {
-        block_in_place(|| {
+    fn group_exists(&self, chat_id: i64, group_name: &str) -> DatabaseResult<bool> {
+        let fn_impl = || {
             let group_id: Option<i64> = self
                 .connection
                 .query_row(
@@ -381,11 +416,15 @@ impl Memory for SqliteMemory {
             } else {
                 Ok(true)
             }
+        };
+
+        block_in_place(|| {
+            fn_impl().map_err(|e| DatabaseError::new("cannot check if group exists", e))
         })
     }
 
-    fn get_group_members(&self, chat_id: i64, group_name: &str) -> anyhow::Result<Vec<String>> {
-        block_in_place(|| {
+    fn get_group_members(&self, chat_id: i64, group_name: &str) -> DatabaseResult<Vec<String>> {
+        let fn_impl = || {
             let mut stmt = self
                 .connection
                 .prepare_cached(
@@ -402,7 +441,9 @@ impl Memory for SqliteMemory {
 
             let group_members = group_member_iter.collect::<Result<_, _>>()?;
             Ok(group_members)
-        })
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot get group members", e)))
     }
 }
 

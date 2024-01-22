@@ -10,7 +10,7 @@ use tokio::sync::Mutex;
 
 mod expense;
 
-use crate::error::{BotError, InputError};
+use crate::error::InputError;
 use crate::memory::Memory;
 pub use expense::{validate_and_resolve_groups, validate_expense};
 
@@ -21,11 +21,7 @@ pub async fn validate_participants_exist<M: Memory, T: AsRef<str>>(
     memory: &Arc<Mutex<M>>,
 ) -> anyhow::Result<()> {
     if !participants.is_empty() {
-        let registered_participants = memory
-            .lock()
-            .await
-            .get_participants(chat_id)
-            .map_err(|e| BotError::database("cannot get participants", e))?;
+        let registered_participants = memory.lock().await.get_participants(chat_id)?;
 
         let registered_participants: HashSet<_> = registered_participants.into_iter().collect();
 
@@ -50,11 +46,7 @@ pub async fn validate_group_exists<M: Memory>(
         return Err(InputError::group_not_provided().into());
     }
 
-    let group_exists = memory
-        .lock()
-        .await
-        .group_exists(chat_id, group_name)
-        .map_err(|e| BotError::database("cannot check if group exists", e))?;
+    let group_exists = memory.lock().await.group_exists(chat_id, group_name)?;
 
     if group_exists {
         Ok(())
