@@ -17,6 +17,7 @@ where it is started.
 
 ## TODO list
 
+- add autoregister mode (?)
 - add aliases
 - add interactive mode to delete expense (?)
 - add interactive mode to list expenses (?)

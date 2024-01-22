@@ -73,34 +73,52 @@ enum Command {
                        used as creditors or debtors in expenses."
     )]
     AddParticipants(String),
+    #[command(description = "shortcut for the /addparticipants command")]
+    Ap(String),
     #[command(
         description = "/removeparticipants participant1 participant2 removes participants that should \
                        not appear in expenses anymore (they are not removed from older expenses)."
     )]
     RemoveParticipants(String),
+    #[command(description = "shortcut for the /removeparticipants command")]
+    Rp(String),
     #[command(
         description = "returns the list of all registered participants (only registered participants can \
                        appear in expenses)."
     )]
     ListParticipants,
+    #[command(description = "shortcut for the /listparticipants command")]
+    Lp,
     #[command(
         description = "/addgroup group_name member1 member2 creates a group with two members."
     )]
     AddGroup(String),
+    #[command(description = "shortcut for the /addgroup command")]
+    Ag(String),
     #[command(description = "/deletegroup group_name deletes a group, no questions asked.")]
     DeleteGroup(String),
+    #[command(description = "shortcut for the /deletegroup command")]
+    Dg(String),
     #[command(
         description = "/addgroupmembers group_name member1 member2 adds two members to a group if not already present."
     )]
     AddGroupMembers(String),
+    #[command(description = "shortcut for the /addgroupmembers command")]
+    Agm(String),
     #[command(
         description = "/removegroupmembers group_name member1 member2 removes two members from a group if present."
     )]
     RemoveGroupMembers(String),
+    #[command(description = "shortcut for the /removegroupmembers command")]
+    Rgm(String),
     #[command(description = "returns the list of all existing groups.")]
     ListGroups,
+    #[command(description = "shortcut for the /listgroups command")]
+    Lg,
     #[command(description = "returns the list of all members of the given group.")]
     ListGroupMembers(String),
+    #[command(description = "shortcut for the /listgroupmembers command")]
+    Lgm(String),
 }
 
 type HandlerResult = anyhow::Result<()>;
@@ -117,35 +135,33 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
     let command_handler =
         teloxide::filter_command::<Command, _>().branch(case![State::Normal].endpoint(
             |msg: Message, bot: Bot, cmd: Command, database: DatabaseInUse| async move {
+                use Command::*;
                 let result = match cmd {
-                    Command::Help => handle_help(&bot, &msg).await,
-                    Command::Expense(e) => handle_expense(&msg, &database, &e).await,
-                    Command::E(e) => handle_expense(&msg, &database, &e).await,
-                    Command::Balance => handle_balance(&bot, &msg, &database).await,
-                    Command::Reset => handle_reset(&msg, &database).await,
-                    Command::List(limit) => handle_list(&bot, &msg, &database, &limit).await,
-                    Command::Delete(id) => handle_delete(&msg, &database, &id).await,
-                    Command::AddParticipants(s) => {
+                    Help => handle_help(&bot, &msg).await,
+                    Expense(e) | E(e) => handle_expense(&msg, &database, &e).await,
+                    Balance => handle_balance(&bot, &msg, &database).await,
+                    Reset => handle_reset(&msg, &database).await,
+                    List(limit) => handle_list(&bot, &msg, &database, &limit).await,
+                    Delete(id) => handle_delete(&msg, &database, &id).await,
+                    AddParticipants(s) | Ap(s) => {
                         handle_add_participants(&msg, &database, &s).await
                     }
-                    Command::RemoveParticipants(s) => {
+                    RemoveParticipants(s) | Rp(s) => {
                         handle_remove_participants(&msg, &database, &s).await
                     }
-                    Command::ListParticipants => {
-                        handle_list_participants(&bot, &msg, &database).await
-                    }
-                    Command::AddGroup(s) => handle_add_group(&msg, &database, &s).await,
-                    Command::DeleteGroup(group_name) => {
+                    ListParticipants | Lp => handle_list_participants(&bot, &msg, &database).await,
+                    AddGroup(s) | Ag(s) => handle_add_group(&msg, &database, &s).await,
+                    DeleteGroup(group_name) | Dg(group_name) => {
                         handle_delete_group(&msg, &database, &group_name).await
                     }
-                    Command::AddGroupMembers(s) => {
+                    AddGroupMembers(s) | Agm(s) => {
                         handle_add_group_members(&msg, &database, &s).await
                     }
-                    Command::RemoveGroupMembers(s) => {
+                    RemoveGroupMembers(s) | Rgm(s) => {
                         handle_remove_group_members(&msg, &database, &s).await
                     }
-                    Command::ListGroups => handle_list_groups(&bot, &msg, &database).await,
-                    Command::ListGroupMembers(group_name) => {
+                    ListGroups | Lg => handle_list_groups(&bot, &msg, &database).await,
+                    ListGroupMembers(group_name) | Lgm(group_name) => {
                         handle_list_group_members(&bot, &msg, &database, &group_name).await
                     }
                 };
