@@ -25,22 +25,31 @@ pub trait Database {
         message_ts: DateTime<Utc>,
     ) -> Result<(), DatabaseError>;
 
-    /// Get the list of all active expenses.
+    /// Get the list of all expenses. If `only_active` is true, then only active expenses
+    /// are returned. Otherwise both active and settled expenses are returned. Deleted
+    /// expenses are never returned.
     ///
     /// An expense is active if it is neither settled nor deleted. Each returned expense
     /// must have a unique ID, that can be used to delete it.
-    fn get_active_expenses(&self, chat_id: i64) -> Result<Vec<SavedExpense>, DatabaseError>;
+    fn get_expenses(
+        &self,
+        chat_id: i64,
+        only_active: bool,
+    ) -> Result<Vec<SavedExpense>, DatabaseError>;
 
-    /// Get the list active expenses starting from *start* and restricting the list by the given
-    /// *limit*.
+    /// Get the list of expenses starting from *start* and restricting the list by the given
+    /// *limit*. If `only_active` is true, then only active expenses
+    /// are returned. Otherwise both active and settled expenses are returned. Deleted
+    /// expenses are never returned.
     ///
     /// An expense is active if it is neither settled nor deleted. Each returned expense
     /// must have a unique ID, that can be used to delete it.
-    fn get_active_expenses_with_limit(
+    fn get_expenses_with_limit(
         &self,
         chat_id: i64,
         start: usize,
         limit: usize,
+        only_active: bool,
     ) -> Result<Vec<SavedExpense>, DatabaseError>;
 
     /// Mark all active expenses as settled.

@@ -42,9 +42,14 @@ pub fn compute_exchanges(expenses: Vec<SavedExpense>) -> Vec<MoneyExchange> {
         .collect();
 
     if log_enabled!(Debug) {
-        let sum: i64 = debts_and_credits.iter().map(|(_, m)| m.round() as i64).sum();
+        let sum: i64 = debts_and_credits
+            .iter()
+            .map(|(_, m)| m.round() as i64)
+            .sum();
         if sum > 1 || sum < -1 {
-            debug!("Total sum should be 0 (or 1 or -1 in some corner cases). In reality it is {sum}");
+            debug!(
+                "Total sum should be 0 (or 1 or -1 in some corner cases). In reality it is {sum}"
+            );
             debug!("{:?}", &debtors);
             debug!("{:?}", &creditors);
         }
@@ -58,14 +63,26 @@ pub fn compute_exchanges(expenses: Vec<SavedExpense>) -> Vec<MoneyExchange> {
             .pop()
             .expect("just checked creditors are non-empty!");
         if are_amount_equal(debtor.1, creditor.1) {
-            result.push(MoneyExchange::new(debtor.0, creditor.0, creditor.1.round() as i64));
+            result.push(MoneyExchange::new(
+                debtor.0,
+                creditor.0,
+                creditor.1.round() as i64,
+            ));
         } else if -debtor.1 < creditor.1 {
             let debt = -debtor.1;
-            result.push(MoneyExchange::new(debtor.0, creditor.0, debt.round() as i64));
+            result.push(MoneyExchange::new(
+                debtor.0,
+                creditor.0,
+                debt.round() as i64,
+            ));
             creditors.push((creditor.0, creditor.1 - debt));
         } else {
             let debt = creditor.1;
-            result.push(MoneyExchange::new(debtor.0, creditor.0, debt.round() as i64));
+            result.push(MoneyExchange::new(
+                debtor.0,
+                creditor.0,
+                debt.round() as i64,
+            ));
             debtors.push((debtor.0, debtor.1 + debt));
         }
     }
@@ -90,7 +107,6 @@ pub fn compute_exchanges(expenses: Vec<SavedExpense>) -> Vec<MoneyExchange> {
 fn are_amount_equal(d: f64, c: f64) -> bool {
     (d + c).abs() < 1.0
 }
-
 
 /// In a previous version this was a map of integers, but this meant that each
 /// expense potentially introduced a one cent error and in unfortunate scenarios
@@ -187,6 +203,7 @@ mod tests {
         let expenses = vec![
             SavedExpense::new(
                 1,
+                true,
                 vec![
                     SavedParticipant::new_creditor("name1", None),
                     SavedParticipant::new_debtor("name2", None),
@@ -198,6 +215,7 @@ mod tests {
             ),
             SavedExpense::new(
                 2,
+                true,
                 vec![
                     SavedParticipant::new_creditor("name2", None),
                     SavedParticipant::new_debtor("name1", None),
@@ -221,6 +239,7 @@ mod tests {
         let expenses = vec![
             SavedExpense::new(
                 1,
+                true,
                 vec![
                     SavedParticipant::new_creditor("name1", None),
                     SavedParticipant::new_debtor("name2", None),
@@ -232,6 +251,7 @@ mod tests {
             ),
             SavedExpense::new(
                 2,
+                true,
                 vec![
                     SavedParticipant::new_creditor("name2", None),
                     SavedParticipant::new_debtor("name1", None),

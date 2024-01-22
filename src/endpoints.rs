@@ -149,7 +149,7 @@ pub async fn handle_balance<D: Database>(
     chat_id: i64,
     database: &Arc<Mutex<D>>,
 ) -> anyhow::Result<String> {
-    let active_expenses = database.lock().await.get_active_expenses(chat_id)?;
+    let active_expenses = database.lock().await.get_expenses(chat_id, true)?;
     let mut exchanges = compute_exchanges(active_expenses);
     exchanges.sort_by(|e1, e2| match e1.debtor.cmp(&e2.debtor) {
         Ordering::Equal => e1.creditor.cmp(&e2.creditor),
@@ -166,23 +166,24 @@ pub async fn handle_list<D: Database>(
     database: &Arc<Mutex<D>>,
     start: usize,
     limit: usize,
+    only_active: bool,
 ) -> anyhow::Result<(String, bool)> {
     debug!(
-        "Producing the list of expenses from {} with limit {}",
-        start, limit
+        "Producing the list of expenses from {} with limit {}. Only active: {}",
+        start, limit, only_active,
     );
 
-    let active_expenses =
+    let expenses =
         database
             .lock()
             .await
-            .get_active_expenses_with_limit(chat_id, start, limit + 1)?;
+            .get_expenses_with_limit(chat_id, start, limit + 1, only_active)?;
 
-    if active_expenses.len() <= limit {
-        let result = format_list_expenses(&active_expenses);
+    if expenses.len() <= limit {
+        let result = format_list_expenses(&expenses);
         Ok((result, false))
     } else {
-        let result = format_list_expenses(&active_expenses[0..limit]);
+        let result = format_list_expenses(&expenses[0..limit]);
         Ok((result, true))
     }
 }

@@ -10,7 +10,8 @@ The bot supports the following commands:
 - `/expense` or `/e`: register a new expense
 - `/balance` or `/b`: show the current balance
 - `/reset`: cancel all outstanding debts
-- `/list` or `/l`: show list of recent expenses
+- `/list` or `/l`: show list of expenses corresponding to outstanding debts
+- `/listall` or `/la`: show list of all expenses
 - `/delete`: delete an expense by ID
 
 **commands to manage participants**:
@@ -216,11 +217,18 @@ as:
 Show list of expenses corresponding to outstanding debts (i.e. all expenses since `/reset` was
 called last). No argument accepted.
 
-It only shows the latest 20 expenses, but it is possible to navigate the list using the inline
+It only shows the latest 15 expenses, but it is possible to navigate the list using the inline
 keyboard.
 
 Expenses are shown from newest to oldest. Every expense starts with a number, which is the ID of the
 expense.
+
+## List all
+
+Same as `/list` but shows all expenses, even the ones that were marked as settled by `/reset`.
+
+The ones that have been settled are marked with a red icon (`🧧`), while the others have the usual
+money bag icon (`💰`).
 
 ## Delete
 

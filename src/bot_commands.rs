@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use anyhow::bail;
 use log::{debug, error};
 use teloxide::{
     dispatching::{
@@ -46,12 +47,15 @@ enum Command {
     B,
     #[command(description = "marks all expenses as settled.")]
     Reset,
-    #[command(
-        description = "/list n shows the last n expenses; without argument, it shows the last one."
-    )]
+    #[command(description = "/list shows all the expenses added since the latest call to reset.")]
     List,
     #[command(description = "shortcut for the /list command.")]
     L,
+    #[command(description = "/listall shows all the expenses; the ones that were added \
+                             before the latest call to reset have a red icon.")]
+    ListAll,
+    #[command(description = "shortcut for the /listall command.")]
+    La,
     #[command(
         description = "/delete <id> deletes the expense with the given ID; to find the ID, use /list."
     )]
@@ -142,8 +146,9 @@ type HandlerResult = anyhow::Result<()>;
 // handling.
 type DatabaseInUse = Arc<Mutex<SqliteDatabase>>;
 
-const DEFAULT_LIMIT: usize = 20;
+const DEFAULT_LIMIT: usize = 15;
 const LIST_CALLBACK_PREFIX: &str = "list";
+const LIST_ALL_CALLBACK_PREFIX: &str = "list-all";
 
 pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
     use dptree::case;
@@ -157,7 +162,8 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                     Expense(e) | E(e) => handle_expense(&msg, &database, &e).await,
                     Balance | B => handle_balance(&bot, &msg, &database).await,
                     Reset => handle_reset(&msg, &database).await,
-                    List | L => handle_list(&bot, &msg, &database).await,
+                    List | L => handle_list(&bot, &msg, &database, true).await,
+                    ListAll | La => handle_list(&bot, &msg, &database, false).await,
                     Delete(id) => handle_delete(&msg, &database, &id).await,
                     AddParticipants(s) | Ap(s) => {
                         handle_add_participants(&msg, &database, &s).await
@@ -235,17 +241,11 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                 match (chat_id, message, callback_data) {
                     (Some(chat_id), Some(message), Some(callback_data)) => {
                         let message_id = message.id;
-                        if callback_data.starts_with(LIST_CALLBACK_PREFIX) {
-                            handle_list_callback(
-                                chat_id,
-                                message_id,
-                                &bot,
-                                &database,
-                                &callback_data[4..callback_data.len()],
-                            )
-                            .await?;
-                        } else {
-                            debug!("Unknown callback data: {}", callback_data);
+                        let result =
+                            dispatch_callback(chat_id, message_id, &bot, &database, callback_data)
+                                .await;
+                        if result.is_err() {
+                            debug!("Cannot dispatch callback: {:#?}", result);
                         }
                     }
                     _ => {
@@ -303,15 +303,16 @@ async fn handle_list<D: Database>(
     bot: &Bot,
     msg: &Message,
     database: &Arc<Mutex<D>>,
+    only_active: bool,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     let (result, there_are_more) =
-        endpoints::handle_list(chat_id, database, 0, DEFAULT_LIMIT).await?;
+        endpoints::handle_list(chat_id, database, 0, DEFAULT_LIMIT, only_active).await?;
 
     let buttons = if there_are_more {
         vec![InlineKeyboardButton::callback(
             "Next",
-            make_limit_callback_data(DEFAULT_LIMIT),
+            make_list_callback_data(DEFAULT_LIMIT, only_active),
         )]
     } else {
         vec![]
@@ -326,35 +327,59 @@ async fn handle_list<D: Database>(
     Ok(())
 }
 
+async fn dispatch_callback<D: Database>(
+    chat_id: ChatId,
+    message_id: MessageId,
+    bot: &Bot,
+    database: &Arc<Mutex<D>>,
+    callback_data: String,
+) -> HandlerResult {
+    let parsed_callback_data = callback_data.split_once(" ");
+    match parsed_callback_data {
+        Some((LIST_CALLBACK_PREFIX, start)) => {
+            handle_list_callback(chat_id, message_id, bot, database, start, true).await
+        }
+        Some((LIST_ALL_CALLBACK_PREFIX, start)) => {
+            handle_list_callback(chat_id, message_id, bot, database, start, false).await
+        }
+        Some((prefix, _)) => bail!("Unknown callback data prefix: {}", prefix),
+        None => bail!("Invalid callback data: {}", callback_data),
+    }
+}
+
 async fn handle_list_callback<D: Database>(
     chat_id: ChatId,
     message_id: MessageId,
     bot: &Bot,
     database: &Arc<Mutex<D>>,
     start: &str,
+    only_active: bool,
 ) -> HandlerResult {
     let start = start.trim();
     let start = start.parse()?;
 
     let (result, there_are_more) =
-        endpoints::handle_list(chat_id.0, database, start, DEFAULT_LIMIT).await?;
+        endpoints::handle_list(chat_id.0, database, start, DEFAULT_LIMIT, only_active).await?;
 
     let mut buttons = vec![];
     if start > 0 {
         if start <= DEFAULT_LIMIT {
-            let button = InlineKeyboardButton::callback("Previous", make_limit_callback_data(0));
+            let button =
+                InlineKeyboardButton::callback("Previous", make_list_callback_data(0, only_active));
             buttons.push(button);
         } else {
             let button = InlineKeyboardButton::callback(
                 "Previous",
-                make_limit_callback_data(start - DEFAULT_LIMIT),
+                make_list_callback_data(start - DEFAULT_LIMIT, only_active),
             );
             buttons.push(button);
         }
     }
     if there_are_more {
-        let button =
-            InlineKeyboardButton::callback("Next", make_limit_callback_data(start + DEFAULT_LIMIT));
+        let button = InlineKeyboardButton::callback(
+            "Next",
+            make_list_callback_data(start + DEFAULT_LIMIT, only_active),
+        );
         buttons.push(button);
     }
 
@@ -365,8 +390,12 @@ async fn handle_list_callback<D: Database>(
     Ok(())
 }
 
-fn make_limit_callback_data(start: usize) -> String {
-    format!("list {}", start)
+fn make_list_callback_data(start: usize, only_active: bool) -> String {
+    if only_active {
+        format!("{} {}", LIST_CALLBACK_PREFIX, start)
+    } else {
+        format!("{} {}", LIST_ALL_CALLBACK_PREFIX, start)
+    }
 }
 
 async fn handle_delete<D: Database>(
