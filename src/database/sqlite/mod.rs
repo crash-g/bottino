@@ -202,7 +202,7 @@ impl Database for SqliteDatabase {
             let tx = self.connection.transaction()?;
 
             {
-                let mut delete_participant_stmt = tx.prepare_cached(
+                let mut remove_participant_stmt = tx.prepare_cached(
                     "UPDATE participant SET deleted_at = CURRENT_TIMESTAMP
                      WHERE chat_id = ?1 AND name = ?2 AND deleted_at IS NULL",
                 )?;
@@ -210,7 +210,7 @@ impl Database for SqliteDatabase {
                 // It's unclear how to use an IN clause, so we use a loop
                 // https://github.com/rusqlite/rusqlite/issues/345
                 for participant in participants {
-                    delete_participant_stmt.execute(params![&chat_id, &participant.as_ref()])?;
+                    remove_participant_stmt.execute(params![&chat_id, &participant.as_ref()])?;
                 }
             }
 
@@ -238,7 +238,7 @@ impl Database for SqliteDatabase {
         block_in_place(|| fn_impl().map_err(|e| map_error("cannot get participants", e)))
     }
 
-    fn create_group_if_not_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
+    fn add_group_if_not_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
         let fn_impl = || {
             // We cannot use INSERT OR IGNORE because our UNIQUE constraint includes a nullable column,
             // and NULL values are considered distinct (https://www.sqlite.org/nulls.html).
@@ -256,20 +256,20 @@ impl Database for SqliteDatabase {
         block_in_place(|| fn_impl().map_err(|e| map_error("cannot create group", e)))
     }
 
-    fn delete_group_if_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
-        debug!("Deleting group. Chat ID: {chat_id}. Group name: {group_name}");
+    fn remove_group_if_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
+        debug!("Removing group. Chat ID: {chat_id}. Group name: {group_name}");
         let fn_impl = || {
-            let mut delete_group_stmt = self.connection.prepare_cached(
+            let mut remove_group_stmt = self.connection.prepare_cached(
                 "UPDATE participant_group SET deleted_at = CURRENT_TIMESTAMP
                  WHERE chat_id = ?1 AND name = ?2 AND deleted_at IS NULL",
             )?;
 
-            delete_group_stmt.execute(params![&chat_id, group_name])?;
+            remove_group_stmt.execute(params![&chat_id, group_name])?;
 
             Ok(())
         };
 
-        block_in_place(|| fn_impl().map_err(|e| map_error("cannot delete group", e)))
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot remove group", e)))
     }
 
     fn add_group_members_if_not_exist<T: AsRef<str>>(
@@ -347,7 +347,7 @@ impl Database for SqliteDatabase {
             )?;
 
             {
-                let mut delete_member_stmt = tx.prepare_cached(
+                let mut remove_member_stmt = tx.prepare_cached(
                     "UPDATE group_member SET deleted_at = CURRENT_TIMESTAMP
                      WHERE group_id = ?1 AND participant_id =
                          (SELECT id FROM participant WHERE chat_id = ?2 AND name = ?3 AND deleted_at IS NULL)
@@ -357,7 +357,7 @@ impl Database for SqliteDatabase {
                 // It's unclear how to use an IN clause, so we use a loop
                 // https://github.com/rusqlite/rusqlite/issues/345
                 for member in members {
-                    delete_member_stmt.execute(params![&group_id, &chat_id, &member.as_ref()])?;
+                    remove_member_stmt.execute(params![&group_id, &chat_id, &member.as_ref()])?;
                 }
             }
 
@@ -598,11 +598,11 @@ mod tests {
         database.add_participants_if_not_exist(chat_id, participants)?;
 
         let group1 = "all";
-        database.create_group_if_not_exists(chat_id, group1)?;
+        database.add_group_if_not_exists(chat_id, group1)?;
         database.add_group_members_if_not_exist(chat_id, group1, &["aa", "bb"])?;
 
         let group2 = "g2";
-        database.create_group_if_not_exists(chat_id, group2)?;
+        database.add_group_if_not_exists(chat_id, group2)?;
 
         assert_eq!(
             to_hash_set(vec!["all", "g2"]),

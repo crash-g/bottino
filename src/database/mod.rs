@@ -74,19 +74,19 @@ pub trait Database {
     /// Get the list of all participants in the given chat.
     fn get_participants(&self, chat_id: i64) -> Result<Vec<String>, DatabaseError>;
 
-    /// Create a group with the given *group_name*.
+    /// Add a group with the given *group_name*.
     ///
     /// If the group already exists, it is a no-op.
-    fn create_group_if_not_exists(
+    fn add_group_if_not_exists(
         &mut self,
         chat_id: i64,
         group_name: &str,
     ) -> Result<(), DatabaseError>;
 
-    /// Delete a group with the given *group_name*.
+    /// Remove a group with the given *group_name*.
     ///
     /// If the group does not exist, it is a no-op.
-    fn delete_group_if_exists(
+    fn remove_group_if_exists(
         &mut self,
         chat_id: i64,
         group_name: &str,

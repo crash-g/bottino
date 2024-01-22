@@ -22,7 +22,7 @@ The bot supports the following commands:
 **commands to manage groups**:
 
 - `/addgroup` or `/ag`: create a group of participants
-- `/deletegroup` or `/dg`: delete a group of participants
+- `/removegroup` or `/rg`: remove a group of participants
 - `/addgroupmembers` or `/agm`: add members to a group
 - `/removegroupmembers` or `/rgm`: remove members from a group
 - `/listgroups` or `/lg`: return the list of all existing groups
@@ -254,16 +254,16 @@ The command has the following syntax:
 The initial list of members is optional, but the group name is required. If the group already exists
 nothing happens.
 
-## Delete group
+## Remove group
 
-A group which is no longer needed can be deleted with this command. All expenses that previously used
+A group which is no longer needed can be removed with this command. All expenses that previously used
 this group are not affected.
 
 If the group does not exist, an error message is returned.
 
 Examples:
 
-- `/deletegroup group_name`
+- `/removegroup group_name`
 
 ## Add group members
 
