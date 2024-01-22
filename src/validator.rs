@@ -6,10 +6,11 @@
 use std::collections::HashSet;
 use std::hash::Hash;
 
+use crate::error::BotError;
 use crate::types::ParsedExpense;
 
 /// Some sanity checks on the expense that was submitted.
-pub fn validate_expense(expense: &ParsedExpense) -> anyhow::Result<()> {
+pub fn validate_expense(expense: &ParsedExpense) -> Result<(), BotError> {
     let amount = expense.amount;
 
     let no_participants = expense.participants.is_empty();
@@ -48,49 +49,61 @@ pub fn validate_expense(expense: &ParsedExpense) -> anyhow::Result<()> {
         .participants
         .iter()
         .filter(|p| p.is_creditor() && p.amount.is_some())
-        .map(|p| p.amount.unwrap())
+        .map(|p| p.amount.expect("just checked the amount is non-empty"))
         .sum();
     let total_debt: i64 = expense
         .participants
         .iter()
         .filter(|p| p.is_debtor() && p.amount.is_some())
-        .map(|p| p.amount.unwrap())
+        .map(|p| p.amount.expect("just checked the amount is non-empty"))
         .sum();
 
     if no_participants {
-        Err(anyhow::anyhow!(
-            "There are neither debtors nor creditors in this expense!\n{:#?}",
-            expense
+        Err(BotError::new(
+            format!(
+                "there are neither debtors nor creditors in this expense!\n{:#?}",
+                expense
+            ),
+            "there are neither debtors nor creditors in this expense!".to_string(),
         ))
     } else if no_creditors {
-        Err(anyhow::anyhow!(
-            "There are no creditors in this expense!\n{:#?}",
-            expense
+        Err(BotError::new(
+            format!("there are no creditors in this expense!\n{:#?}", expense),
+            "there are no creditors in this expense!".to_string(),
         ))
     } else if total_credit > amount {
-        Err(anyhow::anyhow!(
-            "The money that people paid are more than the total expense amount!\n{:#?}",
-            expense
+        Err(BotError::new(
+            format!(
+                "the money that people paid are more than the total expense amount!\n{:#?}",
+                expense
+            ),
+            "the money that people paid are more than the total expense amount!".to_string(),
         ))
     } else if total_credit < amount && only_fixed_creditors {
-        Err(anyhow::anyhow!(
-            "All creditors paid a fixed amount and the total is less than the expense amount!\n{:#?}",
-            expense
+        Err(BotError::new(
+            format!(
+                "all creditors paid a fixed amount and the total is less than the expense amount!\n{:#?}",
+                expense
+            ),
+            "all creditors paid a fixed amount and the total is less than the expense amount!".to_string()
         ))
     } else if total_debt > amount {
-        Err(anyhow::anyhow!(
-            "The money owed by people are more than the total expense amount!\n{:#?}",
-            expense
+        Err(BotError::new(
+            format!(
+                "the money owed by people are more than the total expense amount!\n{:#?}",
+                expense
+            ),
+            "the money owed by people are more than the total expense amount!".to_string(),
         ))
     } else if has_duplicate_creditors {
-        Err(anyhow::anyhow!(
-            "There are creditors with the same name!\n{:#?}",
-            expense
+        Err(BotError::new(
+            format!("there are creditors with the same name!\n{:#?}", expense),
+            "there are creditors with the same name!".to_string(),
         ))
     } else if has_duplicate_debtors {
-        Err(anyhow::anyhow!(
-            "There are debtors with the same name!\n{:#?}",
-            expense
+        Err(BotError::new(
+            format!("there are debtors with the same name!\n{:#?}", expense),
+            "there are debtors with the same name!".to_string(),
         ))
     } else {
         Ok(())

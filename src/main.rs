@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 
 mod bot_commands;
 mod bot_logic;
+mod error;
 mod formatter;
 mod memory;
 mod parser;

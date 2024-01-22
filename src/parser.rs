@@ -139,7 +139,7 @@ mod tests {
     fn test_parse_participant_name() {
         let participant = parse_participant_name("abc", true);
         assert!(participant.is_ok());
-        let participant = participant.unwrap().1;
+        let participant = participant.expect("test").1;
         assert_eq!(participant.name, "abc".to_string());
         assert!(participant.is_creditor());
         assert!(participant.amount.is_none());
@@ -147,7 +147,7 @@ mod tests {
 
         let participant = parse_participant_name("@abc", false);
         assert!(participant.is_ok());
-        let participant = participant.unwrap().1;
+        let participant = participant.expect("test").1;
         assert_eq!(participant.name, "abc".to_string());
         assert!(participant.is_debtor());
         assert!(participant.amount.is_none());
@@ -155,7 +155,7 @@ mod tests {
 
         let participant = parse_participant_name("#abc", false);
         assert!(participant.is_ok());
-        let participant = participant.unwrap().1;
+        let participant = participant.expect("test").1;
         assert_eq!(participant.name, "abc".to_string());
         assert!(participant.is_debtor());
         assert!(participant.amount.is_none());

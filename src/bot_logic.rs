@@ -51,8 +51,10 @@ pub fn compute_exchanges(expenses: Vec<SavedExpense>) -> Vec<MoneyExchange> {
     let mut result = vec![];
 
     while !debtors.is_empty() && !creditors.is_empty() {
-        let debtor = debtors.pop().unwrap();
-        let creditor = creditors.pop().unwrap();
+        let debtor = debtors.pop().expect("just checked debtors are non-empty!");
+        let creditor = creditors
+            .pop()
+            .expect("just checked creditors are non-empty!");
         if are_amount_equal(debtor.1, creditor.1) {
             result.push(MoneyExchange::new(debtor.0, creditor.0, creditor.1));
         } else if -debtor.1 < creditor.1 {
@@ -133,7 +135,7 @@ fn compute_debts(expense: &SavedExpense, balance: &mut HashMap<String, i64>) {
     let all_others_len = all_others.len();
 
     for p in fixed_debtors {
-        let amount = p.amount.unwrap();
+        let amount = p.amount.expect("fixed debtors must have a custom amount!");
         let entry = balance.entry(p.name.clone()).or_insert(0);
         *entry -= amount;
         total_amount -= amount;
@@ -161,7 +163,9 @@ fn compute_credits(expense: &SavedExpense, balance: &mut HashMap<String, i64>) {
     let other_creditors_len = other_creditors.len();
 
     for p in fixed_creditors {
-        let amount = p.amount.unwrap();
+        let amount = p
+            .amount
+            .expect("fixed creditors must have a custom amount!");
         let entry = balance.entry(p.name.clone()).or_insert(0);
         *entry += amount;
         total_amount -= amount;
@@ -207,9 +211,9 @@ mod tests {
 
         let balance = compute_debts_and_credits(expenses);
 
-        assert_eq!(*balance.get("name1").unwrap(), 590);
-        assert_eq!(*balance.get("name2").unwrap(), 1550);
-        assert_eq!(*balance.get("name3").unwrap(), -2140);
+        assert_eq!(*balance.get("name1").expect("test"), 590);
+        assert_eq!(*balance.get("name2").expect("test"), 1550);
+        assert_eq!(*balance.get("name3").expect("test"), -2140);
     }
 
     #[test]
@@ -240,7 +244,7 @@ mod tests {
         let mut exchanges = compute_exchanges(expenses);
         assert_eq!(exchanges.len(), 2);
 
-        exchanges.sort_by(|e1, e2| e1.amount.partial_cmp(&e2.amount).unwrap());
+        exchanges.sort_by(|e1, e2| e1.amount.partial_cmp(&e2.amount).expect("test"));
 
         assert_eq!(exchanges[0].debtor, "name3");
         assert_eq!(exchanges[0].creditor, "name1");

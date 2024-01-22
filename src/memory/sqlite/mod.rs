@@ -80,7 +80,7 @@ impl Memory for SqliteMemory {
                  INNER JOIN participant p ON e.id = p.expense_id
                  WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL",
                 )
-                .with_context(|| "Could not prepare statement")?;
+                .with_context(|| "Could not prepare get active expense statement")?;
 
             query_active_expenses(stmt, &[(":chat_id", &chat_id)])
         })
@@ -104,7 +104,7 @@ impl Memory for SqliteMemory {
                  ORDER BY created_at DESC
                  LIMIT :limit",
                 )
-                .with_context(|| "Could not prepare statement")?;
+                .with_context(|| "Could not prepare get active expense with limit statement")?;
 
             let limit = limit as i64;
             query_active_expenses(stmt, &[(":chat_id", &chat_id), (":limit", &limit)])
@@ -247,11 +247,11 @@ impl Memory for SqliteMemory {
             let mut stmt = self
                 .connection
                 .prepare_cached("SELECT name FROM participant_group WHERE chat_id = :chat_id")
-                .with_context(|| "Could not prepare statement")?;
+                .with_context(|| "Could not prepare get groups statement")?;
 
             let group_iter = stmt
                 .query_map(params![&chat_id], |row| Ok(row.get(0)?))
-                .with_context(|| "Query to get groups has failed")?;
+                .with_context(|| "Query to get groups failed")?;
 
             let groups = group_iter.collect::<Result<_, _>>()?;
             Ok(groups)
@@ -267,11 +267,11 @@ impl Memory for SqliteMemory {
                                  INNER JOIN participant_group pg ON gm.group_id = pg.id
                                  WHERE pg.chat_id = :chat_id AND pg.name = :group_name",
                 )
-                .with_context(|| "Could not prepare statement")?;
+                .with_context(|| "Could not prepare get group members statement")?;
 
             let group_iter = stmt
                 .query_map(params![&chat_id, &group_name], |row| Ok(row.get(0)?))
-                .with_context(|| "Query to get groups has failed")?;
+                .with_context(|| "Query to get group members failed")?;
 
             let groups = group_iter.collect::<Result<_, _>>()?;
             Ok(groups)
@@ -294,7 +294,7 @@ fn query_active_expenses(
                 p_amount: row.get(5)?,
             })
         })
-        .with_context(|| "Query to get active connections has failed")?;
+        .with_context(|| "Query to get active expenses failed")?;
 
     let expenses: Result<Vec<_>, _> = expense_iter.collect();
     Ok(parse_active_expenses_query(expenses?))
