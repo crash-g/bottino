@@ -5,7 +5,7 @@
 use std::iter::repeat;
 use teloxide::utils::markdown::{bold, escape};
 
-use crate::types::{Amount, SavedExpense, MoneyExchange, SavedParticipant, ParticipantMode};
+use crate::types::{Amount, MoneyExchange, ParticipantMode, SavedExpense, SavedParticipant};
 
 const AMOUNT_TO_FLOAT_DIVISOR: f64 = 100.0;
 

@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use log::Level::Debug;
 use log::{debug, log_enabled, warn};
 
-use crate::types::{SavedExpense, MoneyExchange};
+use crate::types::{MoneyExchange, SavedExpense};
 
 /// Get a list of money exchanges which settle debts computed from the list
 /// of expenses in input.

@@ -30,6 +30,7 @@ pub struct ParsedParticipant {
     pub name: String,
     pub mode: ParticipantMode,
     pub amount: Option<Amount>,
+    pub is_group: bool,
 }
 
 /// An expense that is read from memory.
@@ -70,7 +71,11 @@ pub enum ParticipantMode {
 }
 
 impl ParsedExpense {
-    pub fn new(participants: Vec<ParsedParticipant>, amount: Amount, message: Option<String>) -> ParsedExpense {
+    pub fn new(
+        participants: Vec<ParsedParticipant>,
+        amount: Amount,
+        message: Option<String>,
+    ) -> ParsedExpense {
         ParsedExpense {
             participants,
             amount,
@@ -106,16 +111,34 @@ impl SavedExpense {
 }
 
 impl ParsedParticipant {
-    pub fn new(name: String, mode: ParticipantMode, amount: Option<Amount>) -> Self {
-        Self { name, mode, amount }
+    pub fn new(
+        name: String,
+        mode: ParticipantMode,
+        amount: Option<Amount>,
+        is_group: bool,
+    ) -> Self {
+        Self {
+            name,
+            mode,
+            amount,
+            is_group,
+        }
     }
 
     pub fn new_creditor(name: &str, amount: Option<Amount>) -> Self {
-        Self::new(name.to_string(), ParticipantMode::Creditor, amount)
+        Self::new(name.to_string(), ParticipantMode::Creditor, amount, false)
     }
 
     pub fn new_debtor(name: &str, amount: Option<Amount>) -> Self {
-        Self::new(name.to_string(), ParticipantMode::Debtor, amount)
+        Self::new(name.to_string(), ParticipantMode::Debtor, amount, false)
+    }
+
+    pub fn new_creditor_group(name: &str, amount: Option<Amount>) -> Self {
+        Self::new(name.to_string(), ParticipantMode::Creditor, amount, true)
+    }
+
+    pub fn new_debtor_group(name: &str, amount: Option<Amount>) -> Self {
+        Self::new(name.to_string(), ParticipantMode::Debtor, amount, true)
     }
 
     pub fn is_creditor(&self) -> bool {
@@ -124,6 +147,10 @@ impl ParsedParticipant {
 
     pub fn is_debtor(&self) -> bool {
         self.mode == ParticipantMode::Debtor
+    }
+
+    pub fn is_group(&self) -> bool {
+        self.is_group
     }
 }
 
