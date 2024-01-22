@@ -47,6 +47,12 @@ pub async fn validate_group_exists<M: Memory>(
     chat_id: i64,
     memory: &Arc<Mutex<M>>,
 ) -> Result<(), BotError> {
+    if group_name.trim().is_empty() {
+        let user_message = "Missing group name".to_string();
+        let message = user_message.clone();
+        return Err(BotError::new(message, user_message).into());
+    }
+
     let group_exists = memory
         .lock()
         .await
