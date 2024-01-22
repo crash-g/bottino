@@ -1,6 +1,7 @@
 //! The core of the bot logic. It contains the algorithm that computes
 //! the money exchanges needed to settle debts.
 
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
 use log::Level::Debug;
@@ -9,7 +10,8 @@ use log::{debug, log_enabled, warn};
 use crate::types::{MoneyExchange, SavedExpense};
 
 /// Get a list of money exchanges which settle debts computed from the list
-/// of expenses in input.
+/// of expenses in input. The output is sorted by debtors first and creditors
+/// second.
 ///
 /// The algorithm works as follows:
 /// - process all expenses to get a list of people who owe money (debtors) and
@@ -40,6 +42,11 @@ pub fn compute_exchanges(expenses: Vec<SavedExpense>) -> Vec<MoneyExchange> {
         .iter()
         .filter_map(|(p, &a)| if a > 0.0 { Some((p, a)) } else { None })
         .collect();
+
+    // Sort debtors and creditors to ensure consistent results. The order is reversed cause
+    // then we use `pop`, so we iterate the vectors in reverse order.
+    debtors.sort_by(|x, y| reverse_ordering(x.0.partial_cmp(y.0).expect("Cannot sort debtors")));
+    creditors.sort_by(|x, y| reverse_ordering(x.0.partial_cmp(y.0).expect("Cannot sort creditors")));
 
     if log_enabled!(Debug) {
         let sum: i64 = debts_and_credits
@@ -100,6 +107,15 @@ pub fn compute_exchanges(expenses: Vec<SavedExpense>) -> Vec<MoneyExchange> {
     }
 
     result
+}
+
+fn reverse_ordering(o: Ordering) -> Ordering {
+    use Ordering::*;
+    match o {
+        Greater => Less,
+        Equal => Equal,
+        Less => Greater,
+    }
 }
 
 /// Some debts cannot be split exactly (there are no fractions of a cent),
@@ -198,16 +214,16 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn test_compute_credits_and_debts() {
-        let expenses = vec![
+    fn make_expenses() -> Vec<SavedExpense> {
+        vec![
             SavedExpense::new(
                 1,
                 true,
                 vec![
-                    SavedParticipant::new_creditor("name1", None),
-                    SavedParticipant::new_debtor("name2", None),
-                    SavedParticipant::new_debtor("name3", Some(1040)),
+                    SavedParticipant::new_creditor("p2", None),
+                    SavedParticipant::new_debtor("p1", None),
+                    SavedParticipant::new_debtor("a3", Some(1040)),
+                    SavedParticipant::new_debtor("à3", Some(200)),
                 ],
                 2340,
                 None,
@@ -217,63 +233,66 @@ mod tests {
                 2,
                 true,
                 vec![
-                    SavedParticipant::new_creditor("name2", None),
-                    SavedParticipant::new_debtor("name1", None),
-                    SavedParticipant::new_debtor("name3", None),
+                    SavedParticipant::new_creditor("ã2", None),
+                    SavedParticipant::new_debtor("à3", None),
+                    SavedParticipant::new_debtor("a3", None),
                 ],
                 3300,
                 None,
                 DateTime::<Utc>::MIN_UTC,
             ),
-        ];
+            SavedExpense::new(
+                3,
+                true,
+                vec![
+                    SavedParticipant::new_creditor("p4", None),
+                    SavedParticipant::new_debtor("a3", None),
+                ],
+                2000,
+                None,
+                DateTime::<Utc>::MIN_UTC,
+            ),
+        ]
+    }
 
+    #[test]
+    fn test_compute_credits_and_debts() {
+        let expenses = make_expenses();
         let balance = compute_debts_and_credits(expenses);
 
-        assert_abs_diff_eq!(*balance.get("name1").expect("test"), 590.0);
-        assert_abs_diff_eq!(*balance.get("name2").expect("test"), 1550.0);
-        assert_abs_diff_eq!(*balance.get("name3").expect("test"), -2140.0);
+        assert_eq!(balance.len(), 6);
+        assert_abs_diff_eq!(*balance.get("a3").expect("test"), -3140.0);
+        assert_abs_diff_eq!(*balance.get("à3").expect("test"), -1300.0);
+        assert_abs_diff_eq!(*balance.get("p1").expect("test"), -550.0);
+        assert_abs_diff_eq!(*balance.get("ã2").expect("test"), 2200.0);
+        assert_abs_diff_eq!(*balance.get("p2").expect("test"), 1790.0);
+        assert_abs_diff_eq!(*balance.get("p4").expect("test"), 1000.0);
     }
 
     #[test]
     fn test_compute_exchanges() {
-        let expenses = vec![
-            SavedExpense::new(
-                1,
-                true,
-                vec![
-                    SavedParticipant::new_creditor("name1", None),
-                    SavedParticipant::new_debtor("name2", None),
-                    SavedParticipant::new_debtor("name3", Some(1040)),
-                ],
-                2340,
-                None,
-                DateTime::<Utc>::MIN_UTC,
-            ),
-            SavedExpense::new(
-                2,
-                true,
-                vec![
-                    SavedParticipant::new_creditor("name2", None),
-                    SavedParticipant::new_debtor("name1", None),
-                    SavedParticipant::new_debtor("name3", None),
-                ],
-                3300,
-                None,
-                DateTime::<Utc>::MIN_UTC,
-            ),
-        ];
+        let expenses = make_expenses();
+        let exchanges = compute_exchanges(expenses);
+        assert_eq!(exchanges.len(), 5);
 
-        let mut exchanges = compute_exchanges(expenses);
-        assert_eq!(exchanges.len(), 2);
+        assert_eq!(exchanges[0].debtor, "a3");
+        assert_eq!(exchanges[0].creditor, "p2");
+        assert_eq!(exchanges[0].amount, 1790);
 
-        exchanges.sort_by(|e1, e2| e1.amount.partial_cmp(&e2.amount).expect("test"));
+        assert_eq!(exchanges[1].debtor, "a3");
+        assert_eq!(exchanges[1].creditor, "p4");
+        assert_eq!(exchanges[1].amount, 1000);
 
-        assert_eq!(exchanges[0].debtor, "name3");
-        assert_eq!(exchanges[0].creditor, "name1");
-        assert_eq!(exchanges[0].amount, 590);
+        assert_eq!(exchanges[2].debtor, "a3");
+        assert_eq!(exchanges[2].creditor, "ã2");
+        assert_eq!(exchanges[2].amount, 350);
 
-        assert_eq!(exchanges[1].debtor, "name3");
-        assert_eq!(exchanges[1].creditor, "name2");
-        assert_eq!(exchanges[1].amount, 1550);
+        assert_eq!(exchanges[3].debtor, "p1");
+        assert_eq!(exchanges[3].creditor, "ã2");
+        assert_eq!(exchanges[3].amount, 550);
+
+        assert_eq!(exchanges[4].debtor, "à3");
+        assert_eq!(exchanges[4].creditor, "ã2");
+        assert_eq!(exchanges[4].amount, 1300);
     }
 }
