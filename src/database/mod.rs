@@ -11,12 +11,11 @@ type DatabaseResult<T> = Result<T, DatabaseError>;
 
 pub mod sqlite;
 
-/// This trait abstracts over the type of memory.
+/// This trait abstracts over the type of database.
 
-/// The implementation could save the data in memory or, more likely,
-/// in a database.
-pub trait Memory {
-    /// Save an expense inside the memory.
+/// The implementation could save the data in any suitable database or even in memory.
+pub trait Database {
+    /// Save an expense inside the database.
     fn save_expense_with_message(
         &mut self,
         chat_id: i64,

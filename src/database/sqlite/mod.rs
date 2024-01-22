@@ -12,27 +12,27 @@ use crate::{
     types::{ParsedExpense, SavedExpense, SavedParticipant},
 };
 
-use super::{Memory, DatabaseResult};
+use super::{Database, DatabaseResult};
 
 mod schema;
 
-pub struct SqliteMemory {
+pub struct SqliteDatabase {
     connection: Connection,
 }
 
-impl SqliteMemory {
-    pub fn new() -> DatabaseResult<SqliteMemory> {
+impl SqliteDatabase {
+    pub fn new() -> DatabaseResult<SqliteDatabase> {
         block_in_place(|| {
             let connection = Connection::open("treasurer.db")
                 .map_err(|e| DatabaseError::new("cannot open database", e.into()))?;
             schema::create_all_tables(&connection)
                 .map_err(|e| DatabaseError::new("cannot create tables", e))?;
-            Ok(SqliteMemory { connection })
+            Ok(SqliteDatabase { connection })
         })
     }
 }
 
-impl Memory for SqliteMemory {
+impl Database for SqliteDatabase {
     fn save_expense_with_message(
         &mut self,
         chat_id: i64,
