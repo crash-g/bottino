@@ -110,6 +110,13 @@ pub trait Database {
     /// The keys are the aliases and the value their corresponding participant name.
     fn get_aliases(&self, chat_id: i64) -> Result<HashMap<String, String>, DatabaseError>;
 
+    /// Get the list of all aliases of the given participant.
+    fn get_participant_aliases(
+        &self,
+        chat_id: i64,
+        participant: &str,
+    ) -> Result<Vec<String>, DatabaseError>;
+
     /// Add a group with the given *group_name*.
     ///
     /// If the group already exists, it is a no-op.
