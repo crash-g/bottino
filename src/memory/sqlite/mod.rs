@@ -1,6 +1,6 @@
 //! The implementation of a data storage using Sqlite.
 
-use anyhow::Context;
+use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
 use log::{debug, info};
 use rusqlite::{params, CachedStatement, Connection, OptionalExtension, Params};
@@ -52,16 +52,25 @@ impl Memory for SqliteMemory {
 
             {
                 let mut insert_participant_stmt = tx.prepare_cached(
-                    "INSERT INTO participant (name, is_creditor, expense_id, amount) VALUES (?1, ?2, ?3, ?4)"
+                    "INSERT INTO expense_participant (expense_id, participant_id, is_creditor, amount)
+                SELECT ?1, id, ?2, ?3 FROM participant
+                WHERE chat_id = ?4 AND name = ?5"
                 )?;
 
                 for participant in expense.participants {
-                    insert_participant_stmt.execute(params![
-                        &participant.name,
-                        &participant.is_creditor(),
+                    let num_inserted_rows = insert_participant_stmt.execute(params![
                         &expense_id,
-                        &participant.amount
+                        &participant.is_creditor(),
+                        &participant.amount,
+                        &chat_id,
+                        &participant.name,
                     ])?;
+                    if num_inserted_rows == 0 {
+                        return Err(
+                            // This is a concurrency error: fail and let the user try again.
+                            anyhow!("the participant was not found"),
+                        );
+                    }
                 }
             }
 
@@ -76,8 +85,9 @@ impl Memory for SqliteMemory {
             let stmt = self
                 .connection
                 .prepare_cached(
-                    "SELECT e.id, e.amount, e.message, p.name, p.is_creditor, p.amount FROM expense e
-                 INNER JOIN participant p ON e.id = p.expense_id
+                    "SELECT e.id, e.amount, e.message, p.name, ep.is_creditor, ep.amount FROM expense e
+                 INNER JOIN expense_participant ep ON e.id = ep.expense_id
+                 INNER JOIN participant p ON ep.participant_id = p.id
                  WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL",
                 )
                 .with_context(|| "Could not prepare get active expense statement")?;
@@ -98,8 +108,9 @@ impl Memory for SqliteMemory {
             let stmt = self
                 .connection
                 .prepare_cached(
-                    "SELECT e.id, e.amount, e.message, p.name, p.is_creditor, p.amount FROM expense e
-                 INNER JOIN participant p ON e.id = p.expense_id
+                    "SELECT e.id, e.amount, e.message, p.name, ep.is_creditor, ep.amount FROM expense e
+                 INNER JOIN expense_participant ep ON e.id = p.expense_id
+                 INNER JOIN participant p ON ep.participant_id = p.id
                  WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL
                  ORDER BY created_at DESC
                  LIMIT :limit",
@@ -117,7 +128,7 @@ impl Memory for SqliteMemory {
             self.connection
                 .execute(
                     "UPDATE expense SET settled_at = CURRENT_TIMESTAMP
-             WHERE chat_id = ?1 AND settled_at IS NULL AND deleted_at IS NULL",
+                 WHERE chat_id = ?1 AND settled_at IS NULL",
                     params![&chat_id],
                 )
                 .with_context(|| "Query to set all settled failed")?;
@@ -138,6 +149,89 @@ impl Memory for SqliteMemory {
                 .with_context(|| "Query to delete expense failed")?;
 
             Ok(())
+        })
+    }
+
+    fn add_participants_if_not_exist<T: AsRef<str>>(
+        &mut self,
+        chat_id: i64,
+        participants: &[T],
+    ) -> anyhow::Result<()> {
+        block_in_place(|| {
+            let tx = self.connection.transaction()?;
+
+            {
+                let mut insert_participant_stmt = tx
+                    .prepare_cached(
+                        "INSERT OR IGNORE INTO participant (chat_id, name) VALUES (?1, ?2)",
+                    )
+                    .with_context(|| "Could not prepare add participants statement")?;
+                // It's unclear how to use an IN clause, so we use a loop
+                // https://github.com/rusqlite/rusqlite/issues/345
+                for participant in participants {
+                    insert_participant_stmt.execute(params![&chat_id, &participant.as_ref()])?;
+                }
+            }
+
+            tx.commit()?;
+
+            Ok(())
+        })
+    }
+
+    fn remove_participants_if_exist<T: AsRef<str>>(
+        &mut self,
+        chat_id: i64,
+        participants: &[T],
+    ) -> anyhow::Result<()> {
+        block_in_place(|| {
+            let tx = self.connection.transaction()?;
+
+            {
+                let mut delete_participant_stmt = tx
+                    .prepare_cached(
+                        "DELETE FROM participant WHERE chat_id = ?1 AND name = ?2 RETURNING id",
+                    )
+                    .with_context(|| "Could not prepare remove participants statement")?;
+
+                for participant in participants {
+                    let participant_id: Option<i64> = delete_participant_stmt
+                        .query_row(params![&chat_id, &participant.as_ref()], |row| row.get(0))
+                        .optional()?;
+
+                    if participant_id.is_some() {
+                        let mut delete_member_stmt = tx.prepare_cached(
+                            "DELETE FROM group_member WHERE participant_id = ?1 AND group_id IN
+                         (SELECT id FROM participant_group WHERE chat_id = ?2)",
+                        )?;
+
+                        delete_member_stmt.execute(params![
+                            &participant_id.expect("Just checked that participant_id is not empty"),
+                            &chat_id
+                        ])?;
+                    }
+                }
+            }
+
+            tx.commit()?;
+
+            Ok(())
+        })
+    }
+
+    fn get_participants(&self, chat_id: i64) -> anyhow::Result<Vec<String>> {
+        block_in_place(|| {
+            let mut stmt = self
+                .connection
+                .prepare_cached("SELECT name FROM participant WHERE chat_id = :chat_id")
+                .with_context(|| "Could not prepare get participants statement")?;
+
+            let participant_iter = stmt
+                .query_map(params![&chat_id], |row| row.get(0))
+                .with_context(|| "Query to get participants failed")?;
+
+            let participants = participant_iter.collect::<Result<_, _>>()?;
+            Ok(participants)
         })
     }
 
@@ -193,11 +287,17 @@ impl Memory for SqliteMemory {
                 |row| row.get(0),
             )?;
 
-            for member in members {
-                tx.execute(
-                    "INSERT OR IGNORE INTO group_member (name, group_id) VALUES (?1, ?2)",
-                    params![&member.as_ref(), &group_id],
+            {
+                let mut insert_member_stmt = tx.prepare_cached(
+                    "INSERT OR IGNORE INTO group_member (group_id, participant_id)
+                     SELECT ?1, p.id FROM participant
+                     WHERE chat_id = ?2 AND name = ?3",
                 )?;
+                // It's unclear how to use an IN clause, so we use a loop
+                // https://github.com/rusqlite/rusqlite/issues/345
+                for member in members {
+                    insert_member_stmt.execute(params![&group_id, &chat_id, &member.as_ref()])?;
+                }
             }
 
             tx.commit()?;
@@ -221,13 +321,17 @@ impl Memory for SqliteMemory {
                 |row| row.get(0),
             )?;
 
-            // It's unclear how to use an IN clause, so we use a loop
-            // https://github.com/rusqlite/rusqlite/issues/345
-            for member in members {
-                tx.execute(
-                    "DELETE FROM group_member WHERE group_id = ?1 AND name = ?2",
-                    params![&group_id, &member.as_ref()],
+            {
+                let mut delete_member_stmt = tx.prepare_cached(
+                    "DELETE FROM group_member WHERE group_id = ?1 AND participant_id =
+                         (SELECT id FROM participant WHERE chat_id = ?2 AND name = ?3)",
                 )?;
+
+                // It's unclear how to use an IN clause, so we use a loop
+                // https://github.com/rusqlite/rusqlite/issues/345
+                for member in members {
+                    delete_member_stmt.execute(params![&group_id, &chat_id, &member.as_ref()])?;
+                }
             }
 
             tx.commit()?;
@@ -275,9 +379,10 @@ impl Memory for SqliteMemory {
             let mut stmt = self
                 .connection
                 .prepare_cached(
-                    "SELECT gm.name FROM group_member gm
-                                 INNER JOIN participant_group pg ON gm.group_id = pg.id
-                                 WHERE pg.chat_id = :chat_id AND pg.name = :group_name",
+                    "SELECT p.name FROM participant_group pg
+                         INNER JOIN group_member gm ON pg.id = gm.group_id
+                         INNER JOIN participant p ON gm.participant_id = p.id
+                         WHERE pg.chat_id = :chat_id AND pg.name = :group_name",
                 )
                 .with_context(|| "Could not prepare get group members statement")?;
 

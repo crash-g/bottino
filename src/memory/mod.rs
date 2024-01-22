@@ -48,6 +48,28 @@ pub trait Memory {
     /// only requirement is that it does not show as active later on.
     fn delete_expense(&self, chat_id: i64, expense_id: i64) -> anyhow::Result<()>;
 
+    /// Add participants to the given chat.
+    ///
+    /// If some participants already exist, ignore them.
+    fn add_participants_if_not_exist<T: AsRef<str>>(
+        &mut self,
+        chat_id: i64,
+        participants: &[T],
+    ) -> anyhow::Result<()>;
+
+    /// Remove participants from the given chat.
+    ///
+    /// If some participants do not exist, ignore them. Removed participants are also removed
+    /// from all groups they are part of.
+    fn remove_participants_if_exist<T: AsRef<str>>(
+        &mut self,
+        chat_id: i64,
+        participants: &[T],
+    ) -> anyhow::Result<()>;
+
+    /// Get the list of all participants in the given chat.
+    fn get_participants(&self, chat_id: i64) -> anyhow::Result<Vec<String>>;
+
     /// Create a group with the given *group_name*.
     ///
     /// If the group already exists, it is a no-op.
