@@ -1,3 +1,8 @@
+//! Functions that check the validity of user input.
+//!
+//! These functions are called after the parsing phase and execute
+//! checks that are not easily done by the parser.
+
 use std::collections::HashSet;
 use std::hash::Hash;
 

@@ -1,3 +1,5 @@
+//! Definition of Telegram bot commands and handlers.
+
 use std::sync::Arc;
 
 use anyhow::{anyhow, Context};

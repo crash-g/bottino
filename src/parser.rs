@@ -1,3 +1,5 @@
+//! Parse the user input.
+
 use std::{cmp::Ordering, iter::repeat, num::ParseIntError};
 
 use nom::{
@@ -12,6 +14,11 @@ use nom::{
 
 use crate::types::{Amount, Expense, Participant};
 
+/// Parse an expense submitted by the user.
+///
+/// For the expense syntax, you can refer to the bot instructions
+/// (INSTRUCTIONS.md). Some basic checks are performed by the parser, while
+/// other checks are executed later.
 pub fn parse_expense(s: &str) -> IResult<&str, Expense> {
     let (s, creditors) = parse_participants(s, true)?;
     let (s, amount) = parse_amount(s)?;

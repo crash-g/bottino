@@ -1,3 +1,6 @@
+//! The core of the bot logic. It contains the algorithm that computes
+//! the money exchanges needed to settle debts.
+
 use std::collections::{HashMap, HashSet};
 
 use log::Level::Debug;
@@ -5,19 +8,39 @@ use log::{debug, log_enabled, warn};
 
 use crate::types::{ExpenseWithId, MoneyExchange};
 
+/// Get a list of money exchanges which settle debts computed from the list
+/// of expenses in input.
+///
+/// The algorithm works as follows:
+/// - process all expenses to get a list of people who owe money (debtors) and
+///   a list of people who must receive money (creditors)
+/// - pick a debtor and a creditor
+/// - compare debtor's debt (*d*) and creditor's credit (*c*):
+///     * if bigger: let the debtor give *c* to creditor, then pick a new creditor
+///     * if smaller: let the debtor give *d* to creditor, then pick a new debtor
+///     * if equal: let the debtor give *d* to creditor, then pick a new debtor and
+///       and a new creditor
+/// - stop when there are no more debtors/creditors
+///
+/// The solution is correct but not necessarily optimal, in the sense that it may
+/// require more money exchanges than needed. However, the optimal solution is
+/// NP-complete and this approximation is normally good enough.
+///
+/// Another approximation is that we use floating-point math: this may cause rounding
+/// errors, but in general we tolerate errors up to one cent.
 pub fn compute_exchanges(expenses: Vec<ExpenseWithId>) -> Vec<MoneyExchange> {
-    let balance = compute_debts_and_credits(expenses);
-    let mut debtors: Vec<_> = balance
+    let debts_and_credits = compute_debts_and_credits(expenses);
+    let mut debtors: Vec<_> = debts_and_credits
         .iter()
         .filter_map(|(p, &a)| if a < 0 { Some((p, a)) } else { None })
         .collect();
-    let mut creditors: Vec<_> = balance
+    let mut creditors: Vec<_> = debts_and_credits
         .iter()
         .filter_map(|(p, &a)| if a > 0 { Some((p, a)) } else { None })
         .collect();
 
     if log_enabled!(Debug) {
-        let sum: i64 = balance.iter().map(|(_, m)| m).sum();
+        let sum: i64 = debts_and_credits.iter().map(|(_, m)| m).sum();
         if sum != 0 {
             debug!("Total sum should be zero. In reality it is {sum}");
             debug!("{:?}", &debtors);
@@ -76,6 +99,9 @@ fn compute_debts_and_credits(mut expenses: Vec<ExpenseWithId>) -> HashMap<String
     balance
 }
 
+/// We save participants using the original string that users gave in input.
+/// However, participant names are case-insensitive, so when computing
+/// the actual balance we turn them into lower case.
 fn make_names_lowercase(expenses: &mut Vec<ExpenseWithId>) {
     for e in expenses {
         for p in &mut e.participants {
@@ -94,6 +120,8 @@ fn compute_debts(expense: &ExpenseWithId, balance: &mut HashMap<String, i64>) {
         .collect();
     let fixed_debtor_names: HashSet<_> = fixed_debtors.iter().map(|p| &p.name).collect();
 
+    // All creditors are automatically debtors too (unless they are also registered as debtors
+    // with a custom amount of zero).
     // NOTE: we use HashSet instead of Vec because a participant may be present both as CREDITOR
     // and DEBTOR, but here we only want to count them once.
     let all_others: HashSet<_> = expense

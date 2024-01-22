@@ -1,3 +1,5 @@
+//! The implementation of a data storage using Sqlite.
+
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use log::{debug, info};
@@ -97,6 +99,9 @@ impl Memory for SqlLiteMemory {
         })
     }
 
+    /// The current implementation of this function applies the limit to the number of participants,
+    /// while it should apply it to the number of expenses. It is still left here because we could
+    /// improve it in the future, but better not to use it for now.
     fn get_active_expenses_with_limit(
         &self,
         chat_id: i64,
