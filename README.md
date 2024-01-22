@@ -17,8 +17,6 @@ where it is started.
 
 ## TODO list
 
-- add commands for participants
-- make all names lowercase in the parser
 - add checks for the existence of participants in expense/group commands
 - normalize expense to only contain creditor/debtor once
 - make sure the bot logic still works with normalized expenses
