@@ -23,8 +23,8 @@ use crate::{
     validator::{validate_group_name, validate_participant_names},
 };
 use crate::{
-    formatter::{format_balance, format_list_expenses, format_simple_list},
     database::sqlite::SqliteDatabase,
+    formatter::{format_balance, format_list_expenses, format_simple_list},
 };
 use crate::{database::Database, validator::validate_participants_exist};
 use crate::{
@@ -125,7 +125,9 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                     Command::Reset => handle_reset(&msg, &database).await,
                     Command::List(limit) => handle_list(&bot, &msg, &database, &limit).await,
                     Command::Delete(id) => handle_delete(&msg, &database, &id).await,
-                    Command::AddParticipants(s) => handle_add_participants(&msg, &database, &s).await,
+                    Command::AddParticipants(s) => {
+                        handle_add_participants(&msg, &database, &s).await
+                    }
                     Command::RemoveParticipants(s) => {
                         handle_remove_participants(&msg, &database, &s).await
                     }
@@ -273,17 +275,11 @@ async fn handle_list<D: Database>(
     };
     debug!("Producing the list of expenses with limit {}", limit);
 
-    // Considering how we run the query, it is not easy to use a LIMIT, so
-    // we ask for everything and just slice the result.
-    let mut active_expenses = database.lock().await.get_active_expenses(chat_id)?;
-
-    active_expenses.sort_by(|e1, e2| {
-        e2.id
-            .partial_cmp(&e1.id)
-            .expect("cannot sort active expenses")
-    });
-    let limit = std::cmp::min(limit, active_expenses.len());
-    let result = format_list_expenses(&active_expenses[0..limit]);
+    let active_expenses = database
+        .lock()
+        .await
+        .get_active_expenses_with_limit(chat_id, limit)?;
+    let result = format_list_expenses(&active_expenses);
 
     bot.send_message(msg.chat.id, result)
         .parse_mode(ParseMode::MarkdownV2)
@@ -484,7 +480,10 @@ async fn handle_list_group_members<D: Database>(
 
     validate_group_exists(group_name, chat_id, database).await?;
 
-    let members = database.lock().await.get_group_members(chat_id, group_name)?;
+    let members = database
+        .lock()
+        .await
+        .get_group_members(chat_id, group_name)?;
 
     let result = format_simple_list(&members);
     bot.send_message(msg.chat.id, result)
