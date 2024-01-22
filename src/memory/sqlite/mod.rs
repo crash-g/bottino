@@ -296,7 +296,17 @@ impl Memory for SqliteMemory {
                 // It's unclear how to use an IN clause, so we use a loop
                 // https://github.com/rusqlite/rusqlite/issues/345
                 for member in members {
-                    insert_member_stmt.execute(params![&group_id, &chat_id, &member.as_ref()])?;
+                    let num_inserted_rows = insert_member_stmt.execute(params![
+                        &group_id,
+                        &chat_id,
+                        &member.as_ref()
+                    ])?;
+                    if num_inserted_rows == 0 {
+                        return Err(
+                            // This is a concurrency error: fail and let the user try again.
+                            anyhow!("the participant was not found"),
+                        );
+                    }
                 }
             }
 

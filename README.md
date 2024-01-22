@@ -17,9 +17,7 @@ where it is started.
 
 ## TODO list
 
-- add checks for the existence of participants in expense/group commands
-- normalize expense to only contain creditor/debtor once
-- make sure the bot logic still works with normalized expenses
+- update INSTRUCTIONS.md and README.md
 - add aliases (?)
 - add interactive mode to delete expense (?)
 - add interactive mode to list expenses (?)
