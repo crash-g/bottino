@@ -88,7 +88,7 @@ impl Database for SqliteDatabase {
     fn get_active_expenses(&self, chat_id: i64) -> DatabaseResult<Vec<SavedExpense>> {
         let fn_impl = || {
             let mut stmt = self.connection.prepare_cached(
-                "SELECT e.id, e.amount, e.message, p.name, ep.is_creditor, ep.amount FROM expense e
+                "SELECT e.id, e.amount, e.message, e.message_ts, p.name, ep.is_creditor, ep.amount FROM expense e
                  INNER JOIN expense_participant ep ON e.id = ep.expense_id
                  INNER JOIN participant p ON ep.participant_id = p.id
                  WHERE e.chat_id = :chat_id AND e.settled_at IS NULL AND e.deleted_at IS NULL",
@@ -99,9 +99,10 @@ impl Database for SqliteDatabase {
                     id: row.get(0)?,
                     e_amount: row.get(1)?,
                     e_message: row.get(2)?,
-                    p_name: row.get(3)?,
-                    p_is_creditor: row.get(4)?,
-                    p_amount: row.get(5)?,
+                    e_message_ts: row.get(3)?,
+                    p_name: row.get(4)?,
+                    p_is_creditor: row.get(5)?,
+                    p_amount: row.get(6)?,
                 })
             })?;
 
@@ -675,6 +676,7 @@ fn parse_active_expenses_query(expenses: Vec<ActiveExpenseQuery>) -> Vec<SavedEx
                 vec![],
                 active_expense.e_amount,
                 active_expense.e_message,
+                active_expense.e_message_ts,
             )
         });
 
@@ -695,6 +697,7 @@ struct ActiveExpenseQuery {
     id: i64,
     e_amount: i64,
     e_message: Option<String>,
+    e_message_ts: DateTime<Utc>,
     p_name: String,
     p_is_creditor: bool,
     p_amount: Option<i64>,
@@ -825,6 +828,7 @@ mod tests {
                 id: 1,
                 e_amount: 300,
                 e_message: None,
+                e_message_ts: DateTime::<Utc>::MIN_UTC,
                 p_name: "name1".to_string(),
                 p_is_creditor: true,
                 p_amount: None,
@@ -833,6 +837,7 @@ mod tests {
                 id: 1,
                 e_amount: 300,
                 e_message: None,
+                e_message_ts: DateTime::<Utc>::MIN_UTC,
                 p_name: "name2".to_string(),
                 p_is_creditor: false,
                 p_amount: None,
@@ -841,6 +846,7 @@ mod tests {
                 id: 1,
                 e_amount: 300,
                 e_message: None,
+                e_message_ts: DateTime::<Utc>::MIN_UTC,
                 p_name: "name3".to_string(),
                 p_is_creditor: false,
                 p_amount: Some(100),
@@ -849,6 +855,7 @@ mod tests {
                 id: 2,
                 e_amount: 5400,
                 e_message: None,
+                e_message_ts: DateTime::<Utc>::MIN_UTC,
                 p_name: "name1".to_string(),
                 p_is_creditor: true,
                 p_amount: None,
@@ -857,6 +864,7 @@ mod tests {
                 id: 2,
                 e_amount: 5400,
                 e_message: None,
+                e_message_ts: DateTime::<Utc>::MIN_UTC,
                 p_name: "name2".to_string(),
                 p_is_creditor: false,
                 p_amount: None,

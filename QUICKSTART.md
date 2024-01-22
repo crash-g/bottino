@@ -64,8 +64,8 @@ amounts can be added with:
 /e Anna 55 Marco Sara/25
 ```
 
-This means that *Sara* owes 25 euros to *Anna*, while Marco and *Sara* share the rest of the expense
-(so *Marco* owes 15 euros to *Anna*).
+This means that *Sara* owes 25 euros to *Anna*, while *Marco* and *Anna* share the rest of the
+expense (so *Marco* owes 15 euros to *Anna*).
 
 Custom amounts can also be used for creditors, in which case they mean that a creditor contributed
 for exactly that much.
