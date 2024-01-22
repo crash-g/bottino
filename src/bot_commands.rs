@@ -15,13 +15,12 @@ use teloxide::{
 use tokio::sync::Mutex;
 
 use crate::memory::Memory;
-use crate::parser::parse_expense;
+use crate::parser::{parse_expense, parse_group_and_members, parse_participants};
 use crate::validator::{validate_and_resolve_groups, validate_expense};
 use crate::{bot_logic::compute_exchanges, error::BotError};
-use crate::{formatter::format_simple_list, memory::sqlite::SqliteMemory};
 use crate::{
-    formatter::{format_balance, format_list_expenses},
-    parser::parse_group_and_members,
+    formatter::{format_balance, format_list_expenses, format_simple_list},
+    memory::sqlite::SqliteMemory,
 };
 
 #[derive(Clone, Default)]
@@ -57,6 +56,20 @@ enum Command {
     )]
     Delete(String),
     #[command(
+        description = "/addparticipants participant1 participant2 adds participants that can be used in expenses."
+    )]
+    AddParticipants(String),
+    #[command(
+        description = "/removeparticipants participant1 participant2 removes participants that should \
+                       not appear in expenses anymore (they are not removed from older expenses)."
+    )]
+    RemoveParticipants(String),
+    #[command(
+        description = "return the list of all registered participants (only registered participants can \
+                       appear in expenses)."
+    )]
+    ListParticipants,
+    #[command(
         description = "/addgroup group_name member1 member2 creates a group with two members."
     )]
     AddGroup(String),
@@ -70,9 +83,9 @@ enum Command {
         description = "/removegroupmembers group_name member1 member2 removes two members from a group if present."
     )]
     RemoveGroupMembers(String),
-    #[command(description = "Return the list of all existing groups.")]
+    #[command(description = "return the list of all existing groups.")]
     ListGroups,
-    #[command(description = "Return the list of all members of the given group.")]
+    #[command(description = "return the list of all members of the given group.")]
     ListGroupMembers(String),
 }
 
@@ -98,6 +111,13 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                     Command::Reset => handle_reset(&msg, &memory).await,
                     Command::List(limit) => handle_list(&bot, &msg, &memory, &limit).await,
                     Command::Delete(id) => handle_delete(&msg, &memory, &id).await,
+                    Command::AddParticipants(s) => handle_add_participants(&msg, &memory, &s).await,
+                    Command::RemoveParticipants(s) => {
+                        handle_remove_participants(&msg, &memory, &s).await
+                    }
+                    Command::ListParticipants => {
+                        handle_list_participants(&bot, &msg, &memory).await
+                    }
                     Command::AddGroup(s) => handle_add_group(&msg, &memory, &s).await,
                     Command::DeleteGroup(group_name) => {
                         handle_delete_group(&bot, &msg, &memory, &group_name).await
@@ -256,6 +276,59 @@ async fn handle_delete<M: Memory>(
         .await
         .delete_expense(chat_id, expense_id)
         .map_err(|e| BotError::database("cannot delete expense", e))?;
+    Ok(())
+}
+
+async fn handle_add_participants<M: Memory>(
+    msg: &Message,
+    memory: &Arc<Mutex<M>>,
+    payload: &str,
+) -> HandlerResult {
+    let chat_id = msg.chat.id.0;
+    let participants = parse_participants(payload)?;
+    debug!("Adding participants: {:#?}", participants);
+    memory
+        .lock()
+        .await
+        .add_participants_if_not_exist(chat_id, &participants)
+        .map_err(|e| BotError::database("cannot add participants", e))?;
+    Ok(())
+}
+
+async fn handle_remove_participants<M: Memory>(
+    msg: &Message,
+    memory: &Arc<Mutex<M>>,
+    payload: &str,
+) -> HandlerResult {
+    let chat_id = msg.chat.id.0;
+    let participants = parse_participants(payload)?;
+    debug!("Removing participants: {:#?}", participants);
+    memory
+        .lock()
+        .await
+        .remove_participants_if_exist(chat_id, &participants)
+        .map_err(|e| BotError::database("cannot remove participants", e))?;
+    Ok(())
+}
+
+async fn handle_list_participants<M: Memory>(
+    bot: &Bot,
+    msg: &Message,
+    memory: &Arc<Mutex<M>>,
+) -> HandlerResult {
+    let chat_id = msg.chat.id.0;
+    let participants = memory
+        .lock()
+        .await
+        .get_participants(chat_id)
+        .map_err(|e| BotError::database("cannot get participants", e))?;
+
+    let result = format_simple_list(&participants);
+
+    bot.send_message(msg.chat.id, result)
+        .await
+        .map_err(|e| BotError::telegram("cannot send participant list", e))?;
+
     Ok(())
 }
 
