@@ -25,6 +25,10 @@ where it is started.
 
 See [here](FUTURE_PLANS.md) for discussions about possible improvements and new features.
 
+## Discarded plans
+
+See [here](DISCARDED_PLANS.md) for an overview of changes that we decided not to implement.
+
 ## Useful links
 
 - [Telegram bot library](https://crates.io/crates/teloxide)
