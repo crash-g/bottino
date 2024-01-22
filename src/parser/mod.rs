@@ -24,6 +24,30 @@ pub fn parse_participants(s: &str) -> Result<Vec<String>, InputError> {
     }
 }
 
+pub fn parse_participant_and_aliases(s: &str) -> Result<(String, Vec<String>), InputError> {
+    let mut parts: Vec<_> = s
+        .split(' ')
+        .filter_map(|x| {
+            if x.is_empty() {
+                None
+            } else {
+                Some(x.to_lowercase())
+            }
+        })
+        .collect();
+    if parts.is_empty() {
+        Err(InputError::participant_not_provided_in_alias_command())
+    } else {
+        let aliases = parts.split_off(1);
+        Ok((
+            parts
+                .pop()
+                .expect("Just checked that the Vec contains at least one element"),
+            aliases,
+        ))
+    }
+}
+
 pub fn parse_group_and_members(s: &str) -> Result<(String, Vec<String>), InputError> {
     let mut parts: Vec<_> = s
         .split(' ')
@@ -59,6 +83,18 @@ mod tests {
 
         let result = parse_participants("   ");
         assert!(result.is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_participant_and_aliases() -> anyhow::Result<()> {
+        let (participant, aliases) = parse_participant_and_aliases("p1 aa AAA  abc ")?;
+        assert_eq!(participant, "p1");
+        assert_eq!(aliases, vec!["aa", "aaa", "abc"]);
+
+        let (participant, aliases) = parse_participant_and_aliases(" p1  ")?;
+        assert_eq!(participant, "p1");
+        assert_eq!(aliases, Vec::<String>::new());
         Ok(())
     }
 

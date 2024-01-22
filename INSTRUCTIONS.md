@@ -1,7 +1,7 @@
 # Instructions
 
-For every chat/group the bot is used in, it keeps a separate list of expenses, participants and
-groups. The participants of such expenses may or may not be chat/group members.
+For every chat/group the bot is used in, it keeps a separate list of expenses, participants, aliases
+and groups. The participants of such expenses may or may not be chat/group members.
 
 The bot supports the following commands:
 
@@ -19,6 +19,12 @@ The bot supports the following commands:
 - `/removeparticipants` or `/rp`: remove participants that should not appear in expenses anymore
 - `/listparticipants` or `/lp`: return the list of all registered participants
 
+**commands to manage aliases**:
+
+- `/addparticipantaliases` or `/apa`: add aliases for a participant
+- `/removeparticipantaliases` or `/rpa`: remove aliases for a participant
+- `/listparticipantaliases` or `/lpa`: return the list of all aliases for a participant
+
 **commands to manage groups**:
 
 - `/addgroup` or `/ag`: create a group of participants
@@ -26,7 +32,7 @@ The bot supports the following commands:
 - `/addgroupmembers` or `/agm`: add members to a group
 - `/removegroupmembers` or `/rgm`: remove members from a group
 - `/listgroups` or `/lg`: return the list of all existing groups
-- `/listgroupmembers` or `/lgm`: return the list of all members of a given group
+- `/listgroupmembers` or `/lgm`: return the list of all members of a group
 
 Some commands accept no arguments, other require a string. In general, the bot does not answer to
 commands unless required or an error has occurred.
@@ -91,6 +97,12 @@ creditor custom amount (see examples below).
 
 Similarly, all debtors without a custom amount owe an equal share of the total amount, after
 subtracting any debtor custom amount (see examples below).
+
+###### Participant alias
+
+For each participant you can register an arbitrary number of aliases. Aliases can be used to refer
+to a participant in expenses: for all intents and purposes, using an alias is exactly like using the
+participant name.
 
 ##### Group
 
@@ -240,6 +252,18 @@ Examples:
 ## List participants
 
 This command is used to get the list of all registered participants. No argument accepted.
+
+## Add participant aliases
+
+TODO
+
+## Remove participant aliases
+
+TODO
+
+## List participant aliases
+
+TODO
 
 ## Add group
 

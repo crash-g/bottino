@@ -15,6 +15,12 @@ pub enum InputError {
     InvalidParticipantName(String),
 
     #[error(
+        "invalid alias `{0}`: participant names must be alphanumeric, can only \
+             include ASCII characters and must start with a letter"
+    )]
+    InvalidAliasName(String),
+
+    #[error(
         "invalid group name `{0}`: group names must be alphanumeric, can only \
              include ASCII characters and must start with a letter. A `#` must be \
              prepended when using them in expenses, but not in other cases"
@@ -24,6 +30,12 @@ pub enum InputError {
     #[error("`{0}` is not a registered participant")]
     UnregisteredParticipant(String),
 
+    #[error("`{0}` is already used as the name of a participant")]
+    AliasRegisteredAsParticipant(String),
+
+    #[error("`{0}` is already used as an alias for participant `{1}`")]
+    AliasRegisteredAsAlias(String, String),
+
     #[error("`{0}` is not a registered group")]
     UnregisteredGroup(String),
 
@@ -32,6 +44,9 @@ pub enum InputError {
              'participant_name [participant_name...]'"
     )]
     ParticipantsNotProvided,
+
+    #[error("missing participant name. Format must be 'participant [alias1...]'")]
+    ParticipantNotProvidedInAliasCommand,
 
     #[error("missing group name. Format must be 'group_name [member_name...]'")]
     GroupNotProvided,
@@ -60,6 +75,10 @@ impl InputError {
         InputError::InvalidParticipantName(name)
     }
 
+    pub fn invalid_alias_name(name: String) -> Self {
+        InputError::InvalidAliasName(name)
+    }
+
     pub fn invalid_group_name(name: String) -> Self {
         InputError::InvalidGroupName(name)
     }
@@ -68,12 +87,24 @@ impl InputError {
         InputError::UnregisteredParticipant(name)
     }
 
+    pub fn alias_registered_as_participant(name: String) -> Self {
+        InputError::AliasRegisteredAsParticipant(name)
+    }
+
+    pub fn alias_registered_as_alias(name: String, participant: String) -> Self {
+        InputError::AliasRegisteredAsAlias(name, participant)
+    }
+
     pub fn unregistered_group(name: String) -> Self {
         InputError::UnregisteredGroup(name)
     }
 
     pub fn participants_not_provided() -> Self {
         InputError::ParticipantsNotProvided
+    }
+
+    pub fn participant_not_provided_in_alias_command() -> Self {
+        InputError::ParticipantNotProvidedInAliasCommand
     }
 
     pub fn group_not_provided() -> Self {

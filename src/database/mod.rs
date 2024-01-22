@@ -76,7 +76,38 @@ pub trait Database {
     /// Get the list of all participants in the given chat.
     fn get_participants(&self, chat_id: i64) -> Result<Vec<String>, DatabaseError>;
 
+    /// Check if a participant with the given *participant_name* exists.
+    fn participant_exists(
+        &self,
+        chat_id: i64,
+        participant_name: &str,
+    ) -> Result<bool, DatabaseError>;
+
+    /// Add the given aliases for a participant.
+    ///
+    /// If some aliases are already present, they are ignored. If the participant does not exist,
+    /// an error is returned.
+    fn add_aliases_if_not_exist<T: AsRef<str>>(
+        &mut self,
+        chat_id: i64,
+        participant: &str,
+        aliases: &[T],
+    ) -> Result<(), DatabaseError>;
+
+    /// Remove the given participant aliases.
+    ///
+    /// If some aliases are not present, they are ignored. If the participant does not exist,
+    /// an error is returned.
+    fn remove_aliases_if_exist<T: AsRef<str>>(
+        &mut self,
+        chat_id: i64,
+        participant: &str,
+        aliases: &[T],
+    ) -> Result<(), DatabaseError>;
+
     /// Get the list of all aliases in the given chat.
+    ///
+    /// The keys are the aliases and the value their corresponding participant name.
     fn get_aliases(&self, chat_id: i64) -> Result<HashMap<String, String>, DatabaseError>;
 
     /// Add a group with the given *group_name*.
@@ -134,7 +165,9 @@ pub trait Database {
         group_name: &str,
     ) -> Result<Vec<String>, DatabaseError>;
 
+    /// Check if the auto_register flag is active.
     fn is_auto_register_active(&self, chat_id: i64) -> Result<bool, DatabaseError>;
 
+    /// Toggle the auto_register flag.
     fn toggle_auto_register(&mut self, chat_id: i64) -> Result<bool, DatabaseError>;
 }
