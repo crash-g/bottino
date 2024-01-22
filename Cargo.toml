@@ -21,4 +21,5 @@ thiserror = "1.0.37"
 lto = true
 
 [dev-dependencies]
+approx = "0.5.1"
 tempdir = "0.3.7"
