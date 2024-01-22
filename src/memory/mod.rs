@@ -51,13 +51,13 @@ pub trait Memory {
     fn create_group(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()>;
     fn remove_group(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()>;
     fn add_group_members(
-        &self,
+        &mut self,
         chat_id: i64,
         group_name: &str,
         members: &[&str],
     ) -> anyhow::Result<()>;
     fn remove_group_members(
-        &self,
+        &mut self,
         chat_id: i64,
         group_name: &str,
         members: &[&str],

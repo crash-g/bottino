@@ -28,9 +28,9 @@ pub struct ParsedExpense {
 #[derive(Clone, Debug)]
 pub struct ParsedParticipant {
     pub name: String,
-    pub mode: ParticipantMode,
+    mode: ParticipantMode,
     pub amount: Option<Amount>,
-    pub is_group: bool,
+    is_group: bool,
 }
 
 /// An expense that is read from memory.
@@ -51,7 +51,7 @@ pub struct SavedExpense {
 #[derive(Clone, Debug)]
 pub struct SavedParticipant {
     pub name: String,
-    pub mode: ParticipantMode,
+    mode: ParticipantMode,
     pub amount: Option<Amount>,
 }
 
@@ -65,7 +65,7 @@ pub struct MoneyExchange {
 
 /// Whether a participant to an expense is a creditor or a debtor.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ParticipantMode {
+enum ParticipantMode {
     Creditor,
     Debtor,
 }
@@ -111,12 +111,7 @@ impl SavedExpense {
 }
 
 impl ParsedParticipant {
-    pub fn new(
-        name: String,
-        mode: ParticipantMode,
-        amount: Option<Amount>,
-        is_group: bool,
-    ) -> Self {
+    fn new(name: String, mode: ParticipantMode, amount: Option<Amount>, is_group: bool) -> Self {
         Self {
             name,
             mode,
@@ -155,7 +150,7 @@ impl ParsedParticipant {
 }
 
 impl SavedParticipant {
-    pub fn new(name: String, mode: ParticipantMode, amount: Option<Amount>) -> Self {
+    fn new(name: String, mode: ParticipantMode, amount: Option<Amount>) -> Self {
         Self { name, mode, amount }
     }
 

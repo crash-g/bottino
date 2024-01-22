@@ -3,7 +3,7 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use log::{debug, info};
-use rusqlite::{params, Connection, Params, CachedStatement};
+use rusqlite::{params, CachedStatement, Connection, Params};
 use std::collections::HashMap;
 use tokio::task::block_in_place;
 
@@ -185,29 +185,97 @@ impl Memory for SqliteMemory {
     }
 
     fn add_group_members(
-        &self,
+        &mut self,
         chat_id: i64,
         group_name: &str,
         members: &[&str],
     ) -> anyhow::Result<()> {
-        todo!()
+        block_in_place(|| {
+            let tx = self.connection.transaction()?;
+
+            let group_id: i64 = tx.query_row(
+                "SELECT id FROM participant_group WHERE chat_id = :chat_id AND name = :group_name",
+                params![&chat_id, &group_name],
+                |row| row.get(0),
+            )?;
+
+            for member in members {
+                tx.execute(
+                    "INSERT INTO group_member (name, group_id) VALUES (?1, ?2)",
+                    params![&member, &group_id],
+                )?;
+            }
+
+            tx.commit()?;
+
+            Ok(())
+        })
     }
 
     fn remove_group_members(
-        &self,
+        &mut self,
         chat_id: i64,
         group_name: &str,
         members: &[&str],
     ) -> anyhow::Result<()> {
-        todo!()
+        block_in_place(|| {
+            let tx = self.connection.transaction()?;
+
+            let group_id: i64 = tx.query_row(
+                "SELECT id FROM participant_group WHERE chat_id = :chat_id AND name = :group_name",
+                params![&chat_id, &group_name],
+                |row| row.get(0),
+            )?;
+
+            // It's unclear how to use an IN clause, so we use a loop
+            // https://github.com/rusqlite/rusqlite/issues/345
+            for member in members {
+                tx.execute(
+                    "DELETE FROM group_member WHERE group_id = ?1 AND name = ?2",
+                    params![&group_id, &member],
+                )?;
+            }
+
+            tx.commit()?;
+
+            Ok(())
+        })
     }
 
     fn get_groups(&self, chat_id: i64) -> anyhow::Result<Vec<String>> {
-        todo!()
+        block_in_place(|| {
+            let mut stmt = self
+                .connection
+                .prepare_cached("SELECT name FROM participant_group WHERE chat_id = :chat_id")
+                .with_context(|| "Could not prepare statement")?;
+
+            let group_iter = stmt
+                .query_map(params![&chat_id], |row| Ok(row.get(0)?))
+                .with_context(|| "Query to get groups has failed")?;
+
+            let groups = group_iter.collect::<Result<_, _>>()?;
+            Ok(groups)
+        })
     }
 
     fn get_group_members(&self, chat_id: i64, group_name: &str) -> anyhow::Result<Vec<String>> {
-        todo!()
+        block_in_place(|| {
+            let mut stmt = self
+                .connection
+                .prepare_cached(
+                    "SELECT gm.name FROM group_member gm
+                                 INNER JOIN participant_group pg ON gm.group_id = pg.id
+                                 WHERE pg.chat_id = :chat_id AND pg.name = :group_name",
+                )
+                .with_context(|| "Could not prepare statement")?;
+
+            let group_iter = stmt
+                .query_map(params![&chat_id, &group_name], |row| Ok(row.get(0)?))
+                .with_context(|| "Query to get groups has failed")?;
+
+            let groups = group_iter.collect::<Result<_, _>>()?;
+            Ok(groups)
+        })
     }
 }
 

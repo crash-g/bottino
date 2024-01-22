@@ -134,7 +134,6 @@ fn parse_message(s: &str) -> IResult<&str, Option<&str>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::ParticipantMode;
 
     #[test]
     fn test_parse_participant_name() {
@@ -178,13 +177,13 @@ mod tests {
     fn test_parse_participants() -> anyhow::Result<()> {
         let (rest, parsed) = parse_participants("name1/2 - aa", false)?;
         assert_eq!(parsed[0].name, "name1");
-        assert_eq!(parsed[0].mode, ParticipantMode::Debtor);
+        assert!(parsed[0].is_debtor());
         assert_eq!(parsed[0].amount, Some(200));
         assert_eq!(rest, " - aa");
 
         let (rest, parsed) = parse_participants(" name1  ", true)?;
         assert_eq!(parsed[0].name, "name1");
-        assert_eq!(parsed[0].mode, ParticipantMode::Creditor);
+        assert!(parsed[0].is_creditor());
         assert_eq!(parsed[0].amount, None);
         assert_eq!(rest, "  ");
         Ok(())
@@ -205,27 +204,27 @@ mod tests {
         assert_eq!(expense.participants.len(), 6);
 
         assert_eq!(expense.participants[0].name, "creditor1");
-        assert_eq!(expense.participants[0].mode, ParticipantMode::Creditor);
+        assert!(expense.participants[0].is_creditor());
         assert_eq!(expense.participants[0].amount, None);
 
         assert_eq!(expense.participants[1].name, "creditor2");
-        assert_eq!(expense.participants[1].mode, ParticipantMode::Creditor);
+        assert!(expense.participants[1].is_creditor());
         assert_eq!(expense.participants[1].amount, Some(-2110));
 
         assert_eq!(expense.participants[2].name, "debtor1");
-        assert_eq!(expense.participants[2].mode, ParticipantMode::Debtor);
+        assert!(expense.participants[2].is_debtor());
         assert_eq!(expense.participants[2].amount, None);
 
         assert_eq!(expense.participants[3].name, "debtor2");
-        assert_eq!(expense.participants[3].mode, ParticipantMode::Debtor);
+        assert!(expense.participants[3].is_debtor());
         assert_eq!(expense.participants[3].amount, Some(300));
 
         assert_eq!(expense.participants[4].name, "debtor3");
-        assert_eq!(expense.participants[4].mode, ParticipantMode::Debtor);
+        assert!(expense.participants[4].is_debtor());
         assert_eq!(expense.participants[4].amount, Some(100));
 
         assert_eq!(expense.participants[5].name, "group");
-        assert_eq!(expense.participants[5].mode, ParticipantMode::Debtor);
+        assert!(expense.participants[5].is_debtor());
         assert_eq!(expense.participants[5].amount, None);
         assert!(expense.participants[5].is_group());
 
