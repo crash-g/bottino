@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 mod bot_commands;
 mod bot_logic;
 mod database;
+mod endpoints;
 mod error;
 mod formatter;
 mod parser;

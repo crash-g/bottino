@@ -115,20 +115,27 @@ impl Database for SqliteDatabase {
     fn get_active_expenses_with_limit(
         &self,
         chat_id: i64,
+        start: usize,
         limit: usize,
     ) -> DatabaseResult<Vec<SavedExpense>> {
         // It's sort of complex to run the query with a limit, so for now
         // we ask for everything and just slice the result.
 
         let mut all_expenses = self.get_active_expenses(chat_id)?;
+        let num_expenses = all_expenses.len();
 
         all_expenses.sort_by(|e1, e2| {
             e2.id
                 .partial_cmp(&e1.id)
                 .expect("cannot sort active expenses")
         });
-        let limit = std::cmp::min(limit, all_expenses.len());
-        Ok(all_expenses[0..limit].to_vec())
+
+        if start >= num_expenses {
+            Ok(vec![])
+        } else {
+            let limit = std::cmp::min(start + limit, all_expenses.len());
+            Ok(all_expenses[start..limit].to_vec())
+        }
     }
 
     fn mark_all_as_settled(&self, chat_id: i64) -> DatabaseResult<()> {

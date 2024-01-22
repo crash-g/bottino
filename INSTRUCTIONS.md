@@ -213,16 +213,14 @@ as:
 
 ## List
 
-Show list of recent expenses. If used without arguments, it shows only the latest expense.
-Otherwise, the argument must be an integer number which represents the number of expenses to show.
+Show list of expenses corresponding to outstanding debts (i.e. all expenses since `/reset` was
+called last). No argument accepted.
+
+It only shows the latest 20 expenses, but it is possible to navigate the list using the inline
+keyboard.
 
 Expenses are shown from newest to oldest. Every expense starts with a number, which is the ID of the
 expense.
-
-Examples:
-
-- `/list`: show latest expense
-- `/list 3`: show the latest three expenses
 
 ## Delete
 

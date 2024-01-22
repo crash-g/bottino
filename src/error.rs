@@ -57,9 +57,6 @@ pub enum InputError {
     #[error("custom amounts are not allowed for groups!")]
     GroupWithCustomAmount,
 
-    #[error("invalid value `{0}` for limit: expected an integer")]
-    InvalidLimit(String),
-
     #[error("invalid value `{0}` for expense ID: expected an integer")]
     InvalidExpenseId(String),
 }
@@ -120,10 +117,6 @@ impl InputError {
 
     pub fn group_with_custom_amount() -> Self {
         InputError::GroupWithCustomAmount
-    }
-
-    pub fn invalid_limit(limit: String) -> Self {
-        InputError::InvalidLimit(limit)
     }
 
     pub fn invalid_expense_id(id: String) -> Self {

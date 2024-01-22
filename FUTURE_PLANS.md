@@ -5,7 +5,7 @@ Here we keep track of possible improvements or new features that need to be fles
 ## Full list
 
 - Commands are not interactive
-- We may add the possibility to get the participant list from the list of group members.
+- We may add the possibility to get the participant list from the list of group members
 
 ## Interactive commands
 
@@ -17,6 +17,13 @@ input: instead of returning an error, these commands would ask for more input in
 
 **Usefulness**: not really necessary for expert users, but it would make the bot more user-friendly
 for beginners.
+
+### Detailed list of interactive modes
+
+- add interactive mode to delete expense
+- add interactive mode to list expenses
+- add interactive mode to register expense
+- add all other interactive modes
 
 ## Get list of participants
 
@@ -35,10 +42,3 @@ purpose is probably sufficient.
 **Usefulness**: I think it could be mainly useful for large groups; for small groups, participants
 can be quickly registered at the beginning and you don't need to worry about this again. Also, the
 auto register mode greatly reduces the need for this feature.
-
-### Detailed list of interactive modes
-
-- add interactive mode to delete expense
-- add interactive mode to list expenses
-- add interactive mode to register expense
-- add all other interactive modes
