@@ -119,6 +119,13 @@ enum Command {
     ListGroupMembers(String),
     #[command(description = "shortcut for the /listgroupmembers command")]
     Lgm(String),
+    #[command(
+        description = "toggle the auto register mode: when active the participants in an expense are
+                             automatically registered as participants if they are not already"
+    )]
+    ToggleAutoRegister,
+    #[command(description = "return whether auto register mode is active")]
+    IsAutoRegister,
 }
 
 type HandlerResult = anyhow::Result<()>;
@@ -164,6 +171,8 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                     ListGroupMembers(group_name) | Lgm(group_name) => {
                         handle_list_group_members(&bot, &msg, &database, &group_name).await
                     }
+                    ToggleAutoRegister => handle_toggle_auto_register(&bot, &msg, &database).await,
+                    IsAutoRegister => handle_is_auto_register(&bot, &msg, &database).await,
                 };
 
                 // We are basically bypassing teloxide error handler and managing errors here.
@@ -217,9 +226,18 @@ async fn handle_expense<D: Database>(
     let expense = parse_expense(message).map_err(InputError::invalid_expense_syntax)?;
     let expense = expense.1;
     let expense = validate_and_resolve_groups(expense, chat_id, database).await?;
-    validate_expense(&expense, chat_id, database).await?;
-
+    validate_expense(&expense)?;
     let expense = normalize_participants(expense);
+
+    let participants: Vec<_> = expense.participants.iter().map(|p| &p.name).collect();
+    if database.lock().await.is_auto_register_active(chat_id)? {
+        database
+            .lock()
+            .await
+            .add_participants_if_not_exist(chat_id, &participants)?;
+    } else {
+        validate_participants_exist(&participants, chat_id, database).await?;
+    }
 
     database
         .lock()
@@ -514,6 +532,58 @@ async fn handle_list_group_members<D: Database>(
     bot.send_message(msg.chat.id, result)
         .await
         .map_err(|e| TelegramError::new("cannot send group member list", e))?;
+
+    Ok(())
+}
+
+async fn handle_toggle_auto_register<D: Database>(
+    bot: &Bot,
+    msg: &Message,
+    database: &Arc<Mutex<D>>,
+) -> HandlerResult {
+    let chat_id = msg.chat.id.0;
+    debug!("Toggling auto register");
+
+    let auto_register = database.lock().await.toggle_auto_register(chat_id)?;
+
+    if auto_register {
+        let message = "The 'auto register' mode is ENABLED: participants used in expenses will \
+                       be automatically registered as participants if they are not already.";
+        bot.send_message(msg.chat.id, message)
+            .await
+            .map_err(|e| TelegramError::new("cannot send toggle auto register message", e))?;
+    } else {
+        let message = "The 'auto register' mode is DISABLED: using unregistered participants in \
+                       expenses will result in an error.";
+        bot.send_message(msg.chat.id, message)
+            .await
+            .map_err(|e| TelegramError::new("cannot send toggle auto register message", e))?;
+    }
+
+    Ok(())
+}
+
+async fn handle_is_auto_register<D: Database>(
+    bot: &Bot,
+    msg: &Message,
+    database: &Arc<Mutex<D>>,
+) -> HandlerResult {
+    let chat_id = msg.chat.id.0;
+    debug!("Checking auto register mode");
+
+    let auto_register = database.lock().await.is_auto_register_active(chat_id)?;
+
+    if auto_register {
+        let message = "The 'auto register' mode is ENABLED.";
+        bot.send_message(msg.chat.id, message)
+            .await
+            .map_err(|e| TelegramError::new("cannot send is auto register message", e))?;
+    } else {
+        let message = "The 'auto register' mode is DISABLED.";
+        bot.send_message(msg.chat.id, message)
+            .await
+            .map_err(|e| TelegramError::new("cannot send is auto register message", e))?;
+    }
 
     Ok(())
 }

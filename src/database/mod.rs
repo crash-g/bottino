@@ -128,4 +128,8 @@ pub trait Database {
         chat_id: i64,
         group_name: &str,
     ) -> Result<Vec<String>, DatabaseError>;
+
+    fn is_auto_register_active(&self, chat_id: i64) -> Result<bool, DatabaseError>;
+
+    fn toggle_auto_register(&mut self, chat_id: i64) -> Result<bool, DatabaseError>;
 }

@@ -12,8 +12,6 @@ use crate::database::Database;
 use crate::error::InputError;
 use crate::types::{ParsedExpense, ParsedParticipant};
 
-use super::validate_participants_exist;
-
 /// Check that groups do not have custom amount set and replace them with their members.
 pub async fn validate_and_resolve_groups<D: Database>(
     mut expense: ParsedExpense,
@@ -63,19 +61,12 @@ pub async fn validate_and_resolve_groups<D: Database>(
 /// - the total fixed debt is equal to the total amount when all debtors are fixed
 /// - a creditor appears at most once with a custom amount
 /// - a debtor appears at most once with a custom amount
-/// - all participants exist in the database
-pub async fn validate_expense<D: Database>(
-    expense: &ParsedExpense,
-    chat_id: i64,
-    database: &Arc<Mutex<D>>,
-) -> anyhow::Result<()> {
+pub fn validate_expense(expense: &ParsedExpense) -> anyhow::Result<()> {
     at_least_one_participant(expense)?;
     at_least_one_creditor(expense)?;
     total_fixed_credit_in_range(expense)?;
     total_fixed_debt_in_range(expense)?;
     no_duplicate_custom_amounts(expense)?;
-
-    all_participants_exist(expense, chat_id, database).await?;
 
     Ok(())
 }
@@ -192,16 +183,6 @@ fn no_duplicate_custom_amounts(expense: &ParsedExpense) -> Result<(), InputError
     } else {
         Ok(())
     }
-}
-
-async fn all_participants_exist<D: Database>(
-    expense: &ParsedExpense,
-    chat_id: i64,
-    database: &Arc<Mutex<D>>,
-) -> anyhow::Result<()> {
-    let participants: Vec<_> = expense.participants.iter().map(|p| &p.name).collect();
-    validate_participants_exist(&participants, chat_id, database).await?;
-    Ok(())
 }
 
 /// This is more difficult than checking if all creditors are fixed,

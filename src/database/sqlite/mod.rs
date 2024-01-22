@@ -405,6 +405,53 @@ impl Database for SqliteDatabase {
 
         block_in_place(|| fn_impl().map_err(|e| map_error("cannot get group members", e)))
     }
+
+    fn is_auto_register_active(&self, chat_id: i64) -> Result<bool, DatabaseError> {
+        let fn_impl = || {
+            let mut stmt = self
+                .connection
+                .prepare_cached("SELECT auto_register FROM chat_flag WHERE chat_id = :chat_id")?;
+
+            let auto_flag: Option<bool> = stmt
+                .query_row(params![&chat_id], |row| row.get(0))
+                .optional()?;
+
+            if let Some(auto_flag) = auto_flag {
+                Ok(auto_flag)
+            } else {
+                Ok(false)
+            }
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot get auto register flag", e)))
+    }
+
+    fn toggle_auto_register(&mut self, chat_id: i64) -> Result<bool, DatabaseError> {
+        let auto_register = self.is_auto_register_active(chat_id)?;
+        let target_auto_register = !auto_register;
+
+        let mut fn_impl = || {
+            let tx = self.connection.transaction()?;
+
+            let num_rows_updated = tx.execute(
+                "UPDATE chat_flag SET auto_register = ?1 WHERE chat_id = ?2",
+                params![&target_auto_register, &chat_id],
+            )?;
+
+            if num_rows_updated < 1 {
+                tx.execute(
+                    "INSERT INTO chat_flag (chat_id) VALUES (?1)",
+                    params![&chat_id],
+                )?;
+            }
+
+            tx.commit()?;
+
+            Ok(target_auto_register)
+        };
+
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot toggle auto register flag", e)))
+    }
 }
 
 fn parse_active_expenses_query(expenses: Vec<ActiveExpenseQuery>) -> Vec<SavedExpense> {
