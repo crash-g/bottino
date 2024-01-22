@@ -17,7 +17,7 @@ use tokio::sync::Mutex;
 
 use crate::bot_logic::compute_exchanges;
 use crate::formatter::{format_balance, format_list_expenses};
-use crate::memory::sqlite::SqlLiteMemory;
+use crate::memory::sqlite::SqliteMemory;
 use crate::memory::Memory;
 use crate::parser::parse_expense;
 use crate::validator::validate_expense;
@@ -60,7 +60,7 @@ type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
 // cannot pass a type as a parameter. So we define it as a type alias instead.
 // If the correct type of memory is not provided, the thread will panic at runtime during message
 // handling.
-type MemoryInUse = Arc<Mutex<SqlLiteMemory>>;
+type MemoryInUse = Arc<Mutex<SqliteMemory>>;
 
 pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sync + 'static>> {
     use dptree::case;
