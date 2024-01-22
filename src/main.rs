@@ -22,7 +22,7 @@ async fn main() {
     pretty_env_logger::init_timed();
 
     info!("Initiliazing database...");
-    let database = SqliteDatabase::new()
+    let database = SqliteDatabase::new("treasurer.db")
         .map_err(|e| error!("Cannot initialize database: {}", e))
         .expect("Cannot initialize database");
 
