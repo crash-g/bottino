@@ -8,9 +8,9 @@ The bot supports the following commands:
 **commands to manage expenses**:
 
 - `/expense` or `/e`: register a new expense
-- `/balance`: show the current balance
+- `/balance` or `/b`: show the current balance
 - `/reset`: cancel all outstanding debts
-- `/list`: show list of recent expenses
+- `/list` or `/l`: show list of recent expenses
 - `/delete`: delete an expense by ID
 
 **commands to manage participants**:
@@ -33,6 +33,9 @@ The bot supports the following commands:
 - `/removegroupmembers` or `/rgm`: remove members from a group
 - `/listgroups` or `/lg`: return the list of all existing groups
 - `/listgroupmembers` or `/lgm`: return the list of all members of a group
+
+All commands have shortcuts, except for `/reset` and `/delete` which are dangerous commands and are
+therefore intentionally left without a shortcut.
 
 Some commands accept no arguments, other require a string. In general, the bot does not answer to
 commands unless required or an error has occurred.

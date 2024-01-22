@@ -64,12 +64,16 @@ enum Command {
     E(String),
     #[command(description = "prints the current balance.")]
     Balance,
+    #[command(description = "shortcut for the /balance command.")]
+    B,
     #[command(description = "marks all expenses as settled.")]
     Reset,
     #[command(
         description = "/list n shows the last n expenses; without argument, it shows the last one."
     )]
     List(String),
+    #[command(description = "shortcut for the /list command.")]
+    L(String),
     #[command(
         description = "/delete <id> deletes the expense with the given ID; to find the ID, use /list."
     )]
@@ -170,9 +174,9 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                 let result = match cmd {
                     Help => handle_help(&bot, &msg).await,
                     Expense(e) | E(e) => handle_expense(&msg, &database, &e).await,
-                    Balance => handle_balance(&bot, &msg, &database).await,
+                    Balance | B => handle_balance(&bot, &msg, &database).await,
                     Reset => handle_reset(&msg, &database).await,
-                    List(limit) => handle_list(&bot, &msg, &database, &limit).await,
+                    List(limit) | L(limit) => handle_list(&bot, &msg, &database, &limit).await,
                     Delete(id) => handle_delete(&msg, &database, &id).await,
                     AddParticipants(s) | Ap(s) => {
                         handle_add_participants(&msg, &database, &s).await
