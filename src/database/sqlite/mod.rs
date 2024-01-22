@@ -138,7 +138,7 @@ impl Database for SqliteDatabase {
         }
     }
 
-    fn mark_all_as_settled(&self, chat_id: i64) -> DatabaseResult<()> {
+    fn mark_all_as_settled(&mut self, chat_id: i64) -> DatabaseResult<()> {
         debug!("Marking all as settled using current timestamp. Chat ID: {chat_id}");
         let fn_impl = || {
             self.connection.execute(
@@ -153,7 +153,7 @@ impl Database for SqliteDatabase {
         block_in_place(|| fn_impl().map_err(|e| map_error("cannot mark all as settled", e)))
     }
 
-    fn delete_expense(&self, chat_id: i64, expense_id: i64) -> DatabaseResult<()> {
+    fn delete_expense(&mut self, chat_id: i64, expense_id: i64) -> DatabaseResult<()> {
         debug!("Deleting expense. Chat ID: {chat_id}. Expense ID: {expense_id}");
         let fn_impl = || {
             self.connection.execute(

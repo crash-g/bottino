@@ -48,13 +48,13 @@ pub trait Database {
     /// An expense is active if it is neither settled nor deleted. The actual implementation
     /// could actually delete the expenses, since there is no requirement to be able to
     /// retrieve them later.
-    fn mark_all_as_settled(&self, chat_id: i64) -> Result<(), DatabaseError>;
+    fn mark_all_as_settled(&mut self, chat_id: i64) -> Result<(), DatabaseError>;
 
     /// Delete the expense with the given *expense_id*.
     ///
     /// The actual implementation could delete the expense or just mark it as deleted. The
     /// only requirement is that it does not show as active later on.
-    fn delete_expense(&self, chat_id: i64, expense_id: i64) -> Result<(), DatabaseError>;
+    fn delete_expense(&mut self, chat_id: i64, expense_id: i64) -> Result<(), DatabaseError>;
 
     /// Add participants to the given chat.
     ///
