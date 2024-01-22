@@ -170,8 +170,11 @@ impl Database for SqliteDatabase {
             let tx = self.connection.transaction()?;
 
             {
+                // We cannot use INSERT OR IGNORE because our UNIQUE constraint includes a nullable column,
+                // and NULL values are considered distinct (https://www.sqlite.org/nulls.html).
                 let mut insert_participant_stmt = tx.prepare_cached(
-                    "INSERT OR IGNORE INTO participant (chat_id, name) VALUES (?1, ?2)",
+                    "INSERT INTO participant (chat_id, name) SELECT ?1, ?2
+                     WHERE NOT EXISTS (SELECT 1 FROM participant WHERE chat_id = ?1 AND name = ?2)",
                 )?;
                 // It's unclear how to use an IN clause, so we use a loop
                 // https://github.com/rusqlite/rusqlite/issues/345
@@ -235,8 +238,11 @@ impl Database for SqliteDatabase {
 
     fn create_group_if_not_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
         let fn_impl = || {
+            // We cannot use INSERT OR IGNORE because our UNIQUE constraint includes a nullable column,
+            // and NULL values are considered distinct (https://www.sqlite.org/nulls.html).
             self.connection.execute(
-                "INSERT OR IGNORE INTO participant_group (chat_id, name) VALUES (?1, ?2)",
+                "INSERT INTO participant_group (chat_id, name) SELECT ?1, ?2
+                 WHERE NOT EXISTS (SELECT 1 FROM participant_group WHERE chat_id = ?1 AND name = ?2)",
                 params![&chat_id, &group_name],
             )?;
 
@@ -279,20 +285,34 @@ impl Database for SqliteDatabase {
             )?;
 
             {
+                let mut get_participant_id_stmt = tx.prepare_cached(
+                    "SELECT id FROM participant
+                     WHERE chat_id = :chat_id AND name = :member AND deleted_at IS NULL"
+                )?;
+
+                // We cannot use INSERT OR IGNORE because our UNIQUE constraint includes a nullable column,
+                // and NULL values are considered distinct (https://www.sqlite.org/nulls.html).
                 let mut insert_member_stmt = tx.prepare_cached(
-                    "INSERT OR IGNORE INTO group_member (group_id, participant_id)
-                     SELECT ?1, id FROM participant
-                     WHERE chat_id = ?2 AND name = ?3 AND deleted_at IS NULL",
+                    "INSERT INTO group_member (group_id, participant_id) SELECT ?1, ?2
+                     WHERE NOT EXISTS (SELECT 1 FROM group_member WHERE group_id = ?1 AND participant_id = ?2)",
                 )?;
                 // It's unclear how to use an IN clause, so we use a loop
                 // https://github.com/rusqlite/rusqlite/issues/345
                 for member in members {
-                    let num_inserted_rows = insert_member_stmt.execute(params![
-                        &group_id,
-                        &chat_id,
-                        &member.as_ref()
-                    ])?;
-                    if num_inserted_rows == 0 {
+                    // TODO: here we run two queries per member, it would be nice to optimize it,
+                    // but can we do it considering the restrictions on UPSERT and IN-clause?
+
+                    let participant_id: Option<i64> = get_participant_id_stmt.query_row(
+                        params![&chat_id, &member.as_ref()],
+                        |row| row.get(0),
+                    ).optional()?;
+
+                    if let Some(participant_id) = participant_id {
+                        insert_member_stmt.execute(params![
+                            &group_id,
+                            &participant_id
+                        ])?;
+                    } else {
                         return Err(
                             DatabaseError::concurrency("the participant was not found").into()
                         );
@@ -351,7 +371,7 @@ impl Database for SqliteDatabase {
         let fn_impl = || {
             let mut stmt = self.connection.prepare_cached(
                 "SELECT name FROM participant_group
-                                 WHERE chat_id = :chat_id AND deleted_at IS NULL",
+                 WHERE chat_id = :chat_id AND deleted_at IS NULL",
             )?;
 
             let group_iter = stmt.query_map(params![&chat_id], |row| row.get(0))?;
@@ -433,15 +453,18 @@ impl Database for SqliteDatabase {
         let mut fn_impl = || {
             let tx = self.connection.transaction()?;
 
+            // Sqlite does not support UPSERT, so we first try to update and if we fail we insert.
+
             let num_rows_updated = tx.execute(
                 "UPDATE chat_flag SET auto_register = ?1 WHERE chat_id = ?2",
                 params![&target_auto_register, &chat_id],
             )?;
 
             if num_rows_updated < 1 {
+                // The table did not have an entry for this chat: let's create it now.
                 tx.execute(
-                    "INSERT INTO chat_flag (chat_id) VALUES (?1)",
-                    params![&chat_id],
+                    "INSERT INTO chat_flag (chat_id, auto_register) VALUES (?1, ?2)",
+                    params![&chat_id, &target_auto_register],
                 )?;
             }
 
