@@ -52,7 +52,8 @@ fn parse_participants(s: &str, are_creditors: bool) -> IResult<&str, Vec<ParsedP
     ))(s)
 }
 
-/// Participant name must be alphanumeric. If there is a '@' prepended, it is stripped away.
+/// Participant name must be alphanumeric and cannot start with a number.
+/// If there is a '@' prepended, it is stripped away.
 /// If instead '#' is prepended, the participant is considered to be a group ('#' is still stripped away).
 fn parse_participant_name(s: &str, is_creditor: bool) -> IResult<&str, ParsedParticipant> {
     let do_parse = |s: &str| -> ParsedParticipant {

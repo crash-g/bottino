@@ -1,8 +1,8 @@
 //! Definition of Telegram bot commands and handlers.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::{HashMap, hash_map::Entry}, sync::Arc};
 
-use log::{debug, info};
+use log::{debug, error, info};
 use teloxide::{
     dispatching::{
         dialogue::{self, InMemStorage},
@@ -14,7 +14,11 @@ use teloxide::{
 };
 use tokio::sync::Mutex;
 
-use crate::{bot_logic::compute_exchanges, error::BotError};
+use crate::{
+    bot_logic::compute_exchanges,
+    error::{BotError, InputError},
+    validator::{validate_group_name, validate_participant_names},
+};
 use crate::{
     formatter::{format_balance, format_list_expenses, format_simple_list},
     memory::sqlite::SqliteMemory,
@@ -96,7 +100,7 @@ enum Command {
     ListGroupMembers(String),
 }
 
-type HandlerResult = Result<(), Box<dyn std::error::Error + Send + Sync>>;
+type HandlerResult = anyhow::Result<()>;
 
 // We would like to take this as parameter of dialogue_handler, but probably in Rust you
 // cannot pass a type as a parameter. So we define it as a type alias instead.
@@ -141,15 +145,22 @@ pub fn dialogue_handler() -> UpdateHandler<Box<dyn std::error::Error + Send + Sy
                     }
                 };
 
-                if result.is_err() {
-                    let e = result.as_ref().expect_err("just checked this is an error!");
-                    bot.send_message(msg.chat.id, format!("{e}"))
-                        .await
-                        .map_err(|e| BotError::telegram("cannot send error message", e))?;
+                // We are basically bypassing teloxide error handler and managing errors here.
+                // In the future it will be worth to explore if teloxide error handler can do everything we need:
+                // - log with different levels depending on the error
+                // - send a message to the user
+                if let Err(e) = result {
+                    if let Some(e) = e.downcast_ref::<InputError>() {
+                        debug!("InputError: {:#?}", e);
+                    } else {
+                        error!("An error occurred: {:#?}", e);
+                    }
+                    if let Err(e) = bot.send_message(msg.chat.id, format!("{e}")).await {
+                        error!("Cannot send error message: {:#?}", e);
+                    }
                 }
 
-                // teloxide default error handler will take care of logging the result if it is an error.
-                result
+                Ok(())
             },
         ));
 
@@ -173,9 +184,7 @@ async fn handle_expense<M: Memory>(
     let chat_id = msg.chat.id.0;
     let message_ts = msg.date;
 
-    let expense = parse_expense(message).map_err(|e| {
-        BotError::nom_parse(&format!("cannot parse input message '{}'", message,), e)
-    })?;
+    let expense = parse_expense(message).map_err(InputError::invalid_expense_syntax)?;
     let expense = expense.1;
     let expense = validate_and_resolve_groups(expense, chat_id, memory).await?;
     validate_expense(&expense, chat_id, memory).await?;
@@ -199,21 +208,18 @@ fn normalize_participants(expense: ParsedExpense) -> ParsedExpense {
     let mut participants = HashMap::new();
 
     for participant in expense.participants {
-        if participants.contains_key(&(participant.name.clone(), participant.is_creditor())) {
-            if participant.amount.is_some() {
-                // If a participant has a custom amount, it supersedes any mention without.
-                // Note that this can only happen once because we have already validated the expense.
-                participants.insert(
-                    (participant.name.clone(), participant.is_creditor()),
-                    participant,
-                );
+        match participants.entry((participant.name.clone(), participant.is_creditor())) {
+            Entry::Occupied(mut e) => {
+                if participant.amount.is_some() {
+                    // If a participant has a custom amount, it supersedes any mention without.
+                    // Note that this can only happen once because we have already validated the expense.
+                    e.insert(participant);
+                }
             }
-        } else {
-            // We insert the participant if not already present.
-            participants.insert(
-                (participant.name.clone(), participant.is_creditor()),
-                participant,
-            );
+            Entry::Vacant(e) => {
+                // We insert the participant if not already present.
+                e.insert(participant);
+            }
         }
     }
 
@@ -267,12 +273,9 @@ async fn handle_list<M: Memory>(
     let limit = if limit.is_empty() {
         1
     } else {
-        limit.parse().map_err(|e| {
-            BotError::new(
-                format!("cannot parse limit '{}': {}", limit, e),
-                "cannot parse integer".to_string(),
-            )
-        })?
+        limit
+            .parse()
+            .map_err(|_| InputError::invalid_limit(limit.to_string()))?
     };
     debug!("Producing the list of expenses with limit {}", limit);
 
@@ -306,12 +309,9 @@ async fn handle_delete<M: Memory>(
     expense_id: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
-    let expense_id = expense_id.parse().map_err(|e| {
-        BotError::new(
-            format!("cannot parse expense ID '{}': {}", expense_id, e),
-            "cannot parse integer".to_string(),
-        )
-    })?;
+    let expense_id = expense_id
+        .parse()
+        .map_err(|_| InputError::invalid_expense_id(expense_id.to_string()))?;
 
     memory
         .lock()
@@ -328,6 +328,7 @@ async fn handle_add_participants<M: Memory>(
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     let participants = parse_participants(payload)?;
+    validate_participant_names(&participants)?;
     debug!("Adding participants: {:#?}", participants);
     memory
         .lock()
@@ -344,6 +345,7 @@ async fn handle_remove_participants<M: Memory>(
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     let participants = parse_participants(payload)?;
+    validate_participant_names(&participants)?;
     debug!("Removing participants: {:#?}", participants);
     memory
         .lock()
@@ -381,6 +383,8 @@ async fn handle_add_group<M: Memory>(
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     let (group_name, members) = parse_group_and_members(payload)?;
+    validate_group_name(&group_name)?;
+    validate_participant_names(&members)?;
     debug!(
         "Creating group named {group_name} with members: {:#?}",
         members
@@ -410,6 +414,7 @@ async fn handle_delete_group<M: Memory>(
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
+    validate_group_name(group_name)?;
     info!("Deleting group named {group_name}");
 
     validate_group_exists(group_name, chat_id, memory).await?;
@@ -430,6 +435,8 @@ async fn handle_add_group_members<M: Memory>(
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     let (group_name, members) = parse_group_and_members(payload)?;
+    validate_group_name(&group_name)?;
+    validate_participant_names(&members)?;
     debug!(
         "Adding group members to group named {group_name}. Members: {:#?}",
         members
@@ -454,6 +461,12 @@ async fn handle_remove_group_members<M: Memory>(
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
     let (group_name, members) = parse_group_and_members(payload)?;
+    validate_group_name(&group_name)?;
+    validate_participant_names(&members)?;
+    debug!(
+        "Deleting group members from group named {group_name}. Members: {:#?}",
+        members
+    );
 
     validate_group_exists(&group_name, chat_id, memory).await?;
     validate_participants_exist(&members, chat_id, memory).await?;
@@ -495,6 +508,8 @@ async fn handle_list_group_members<M: Memory>(
     group_name: &str,
 ) -> HandlerResult {
     let chat_id = msg.chat.id.0;
+    validate_group_name(group_name)?;
+    debug!("Listing all members of group: {group_name}");
 
     validate_group_exists(group_name, chat_id, memory).await?;
 

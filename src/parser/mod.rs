@@ -4,9 +4,9 @@ mod expense;
 
 pub use expense::parse_expense;
 
-use crate::error::BotError;
+use crate::error::InputError;
 
-pub fn parse_participants(s: &str) -> Result<Vec<String>, BotError> {
+pub fn parse_participants(s: &str) -> Result<Vec<String>, InputError> {
     let parts: Vec<_> = s
         .split(' ')
         .filter_map(|x| {
@@ -18,16 +18,13 @@ pub fn parse_participants(s: &str) -> Result<Vec<String>, BotError> {
         })
         .collect();
     if parts.is_empty() {
-        Err(BotError::new(
-            format!("Missing participants: {}", s),
-            "There must be at least one participant. Format must be 'participant_name [participant_name...]'".to_string(),
-        ))
+        Err(InputError::participants_not_provided())
     } else {
         Ok(parts)
     }
 }
 
-pub fn parse_group_and_members(s: &str) -> Result<(String, Vec<String>), BotError> {
+pub fn parse_group_and_members(s: &str) -> Result<(String, Vec<String>), InputError> {
     let mut parts: Vec<_> = s
         .split(' ')
         .filter_map(|x| {
@@ -39,10 +36,7 @@ pub fn parse_group_and_members(s: &str) -> Result<(String, Vec<String>), BotErro
         })
         .collect();
     if parts.is_empty() {
-        Err(BotError::new(
-            format!("Missing group name: {}", s),
-            "Missing group name. Format must be 'group_name [member_name...]'".to_string(),
-        ))
+        Err(InputError::group_not_provided())
     } else {
         let members = parts.split_off(1);
         Ok((
