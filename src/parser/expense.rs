@@ -5,12 +5,14 @@
 use std::{cmp::Ordering, iter::repeat, num::ParseIntError};
 
 use nom::{
+    branch::alt,
     bytes::complete::{is_not, tag},
-    character::complete::{char, multispace0, not_line_ending},
-    combinator::{map, map_res, opt, recognize, verify},
+    character::complete::{char, multispace0, multispace1},
+    combinator::{eof, map, map_res, opt, recognize, rest, verify},
+    error::{context, ErrorKind},
     multi::many0,
-    sequence::{preceded, tuple},
-    AsChar, IResult, InputTakeAtPosition,
+    sequence::{delimited, preceded, terminated, tuple},
+    IResult,
 };
 
 use crate::{
@@ -29,29 +31,41 @@ pub fn parse_expense(s: &str) -> IResult<&str, ParsedExpense> {
     let (s, mut debtors) = parse_participants(s, false)?;
     let (s, message) = parse_message(s)?;
 
-    let mut participants = creditors;
-    participants.append(&mut debtors);
-    let message = message.map(|m| m.to_string());
+    if s.trim().is_empty() {
+        let mut participants = creditors;
+        participants.append(&mut debtors);
+        let message = message.map(|m| m.to_string());
 
-    Ok((s, ParsedExpense::new(participants, amount, message)))
+        Ok((s, ParsedExpense::new(participants, amount, message)))
+    } else {
+        Err(nom::Err::Error(nom::error::Error::new(s, ErrorKind::Eof)))
+    }
 }
 
 fn parse_participants(s: &str, are_creditors: bool) -> IResult<&str, Vec<ParsedParticipant>> {
     let do_parse_participant_name = |s| parse_participant_name(s, are_creditors);
 
-    let do_parse_participant = |x: (ParsedParticipant, Option<Amount>)| {
-        let mut participant = x.0;
-        participant.amount = x.1;
-        participant
-    };
-
-    many0(preceded(
-        multispace0,
-        map(
-            tuple((do_parse_participant_name, opt(parse_participant_amount))),
-            do_parse_participant,
-        ),
-    ))(s)
+    context(
+        "cannot parse participants",
+        many0(preceded(
+            multispace0,
+            alt((
+                // Participant with custom amount.
+                map(
+                    terminated(
+                        tuple((do_parse_participant_name, parse_participant_amount)),
+                        alt((multispace1, eof)),
+                    ),
+                    |(mut p, a)| {
+                        p.amount = Some(a);
+                        p
+                    },
+                ),
+                // Participant without custom amount.
+                terminated(do_parse_participant_name, alt((multispace1, eof))),
+            )),
+        )),
+    )(s)
 }
 
 /// Participant name must be alphanumeric and cannot start with a number.
@@ -86,52 +100,60 @@ fn parse_participant_name(s: &str, is_creditor: bool) -> IResult<&str, ParsedPar
         }
     }
 
-    map(
-        recognize(
-            // Match until a whitespace or '/', '-' is found, then use is_valid
-            // to make sure that a name was matched (and not a number, which
-            // would be the amount).
-            verify(is_not(" \t\r\n/-"), is_valid),
+    context(
+        "cannot parse participant name",
+        map(
+            recognize(
+                // Match until a whitespace or '/', '-' is found, then use is_valid
+                // to make sure that a name was matched (and not a number, which
+                // would be the amount).
+                verify(is_not(" \t\r\n/-"), is_valid),
+            ),
+            do_parse,
         ),
-        do_parse,
     )(s)
 }
 
 fn parse_participant_amount(s: &str) -> IResult<&str, Amount> {
-    preceded(char('/'), parse_amount)(s)
-}
-
-fn float1(s: &str) -> IResult<&str, &str> {
-    s.split_at_position1_complete(
-        |item| !item.is_dec_digit() && item != ',' && item != '.' && item != '-' && item != '+',
-        nom::error::ErrorKind::Float,
-    )
+    // The difference with parse_amount is that there is no need to expect a whitespace
+    // at the end because the caller already expects (and consumes) it.
+    context(
+        "cannot parse participant amount",
+        // Match until the next whitespace, then try to parse.
+        preceded(char('/'), map_res(is_not(" \t\r\n"), do_parse_amount)),
+    )(s)
 }
 
 fn parse_amount(s: &str) -> IResult<&str, Amount> {
-    fn do_parse(x: &str) -> Result<Amount, ParseIntError> {
-        let components: Vec<_> = x.split(&[',', '.']).collect();
-        if components.len() == 2 {
-            let integer_part = components[0].to_string();
-            let fractional_part = components[1].to_string();
+    context(
+        "cannot parse amount",
+        // Match until the next whitespace, then try to parse.
+        delimited(
+            multispace0,
+            map_res(is_not(" \t\r\n"), do_parse_amount),
+            alt((multispace1, eof)),
+        ),
+    )(s)
+}
 
-            let fractional_part_len = fractional_part.len();
-            let fractional_part = match fractional_part_len.cmp(&2) {
-                Ordering::Less => {
-                    fractional_part + &make_string_of_char('0', 2 - fractional_part_len)
-                }
-                Ordering::Greater => fractional_part[0..2].to_string(),
-                Ordering::Equal => fractional_part,
-            };
-            (integer_part + &fractional_part).parse::<i64>()
-        } else {
-            let integer_part = components[0].to_string();
-            let fractional_part = make_string_of_char('0', 2);
-            (integer_part + &fractional_part).parse::<i64>()
-        }
+fn do_parse_amount(x: &str) -> Result<Amount, ParseIntError> {
+    let components: Vec<_> = x.split(&[',', '.']).collect();
+    if components.len() == 2 {
+        let integer_part = components[0].to_string();
+        let fractional_part = components[1].to_string();
+
+        let fractional_part_len = fractional_part.len();
+        let fractional_part = match fractional_part_len.cmp(&2) {
+            Ordering::Less => fractional_part + &make_string_of_char('0', 2 - fractional_part_len),
+            Ordering::Greater => fractional_part[0..2].to_string(),
+            Ordering::Equal => fractional_part,
+        };
+        (integer_part + &fractional_part).parse::<i64>()
+    } else {
+        let integer_part = components[0].to_string();
+        let fractional_part = make_string_of_char('0', 2);
+        (integer_part + &fractional_part).parse::<i64>()
     }
-
-    preceded(multispace0, map_res(float1, do_parse))(s)
 }
 
 fn make_string_of_char(c: char, length: usize) -> String {
@@ -139,10 +161,10 @@ fn make_string_of_char(c: char, length: usize) -> String {
 }
 
 fn parse_message(s: &str) -> IResult<&str, Option<&str>> {
-    opt(preceded(
-        multispace0,
-        preceded(tag("- "), map(not_line_ending, |s| s)),
-    ))(s)
+    context(
+        "cannot parse message",
+        opt(preceded(multispace0, preceded(tag("- "), rest))),
+    )(s)
 }
 
 #[cfg(test)]
@@ -152,7 +174,6 @@ mod tests {
     #[test]
     fn test_parse_participant_name() {
         let participant = parse_participant_name("aBC", true);
-        dbg!("{}", &participant);
         assert!(participant.is_ok());
         let participant = participant.expect("test").1;
         assert_eq!(participant.name, "abc".to_string());
@@ -161,7 +182,6 @@ mod tests {
         assert!(!participant.is_group());
 
         let participant = parse_participant_name("@Abë", false);
-        dbg!("{}", &participant);
         assert!(participant.is_ok());
         let participant = participant.expect("test").1;
         assert_eq!(participant.name, "abë".to_string());
@@ -195,13 +215,13 @@ mod tests {
         assert_eq!(parsed[0].name, "name1");
         assert!(parsed[0].is_debtor());
         assert_eq!(parsed[0].amount, Some(200));
-        assert_eq!(rest, " - aa");
+        assert_eq!(rest, "- aa");
 
         let (rest, parsed) = parse_participants(" name1  ", true)?;
         assert_eq!(parsed[0].name, "name1");
         assert!(parsed[0].is_creditor());
         assert_eq!(parsed[0].amount, None);
-        assert_eq!(rest, "  ");
+        assert_eq!(rest, "");
         Ok(())
     }
 
@@ -213,6 +233,7 @@ mod tests {
 
     #[test]
     fn test_parse() -> anyhow::Result<()> {
+        // Parse an expense with too many spaces, UTF-8 characters, custom amounts, groups and a message.
         let (rest, expense) = parse_expense(
             " @creditor1 creditòr2/-21.1 34.3   Debtor1 debtor2/3  @debtor3/1 #ǵroup  - yoh",
         )?;
@@ -248,10 +269,65 @@ mod tests {
         assert_eq!(expense.message, Some("yoh".to_string()));
         assert_eq!(rest, "");
 
+        // Parse an expense without a message.
         let (rest, expense) =
             parse_expense(" creditor1 creditor2/-21.1 34.3   debtor1 debtor2/3  debtor3/1")?;
         assert_eq!(expense.message, None);
         assert_eq!(rest, "");
+
+        // Parse an expense on multiple lines.
+        let (rest, expense) =
+            parse_expense("creditor1\ncreditor2/-21.1\n34.3\ndebtor1\ndebtor2/3\ndebtor3/1 - message\non\nmany\nlines")?;
+        assert_eq!(expense.participants.len(), 5);
+        assert_eq!(expense.amount, 3430);
+        assert_eq!(
+            expense
+                .message
+                .unwrap()
+                .split('\n')
+                .collect::<Vec<_>>()
+                .len(),
+            4
+        );
+        assert_eq!(rest, "");
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_parse_fails() -> anyhow::Result<()> {
+        // All parsers finished but there are characters left.
+        let result = parse_expense("c1 34.3 d1 d2 123");
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        if let nom::Err::Error(e) = error {
+            assert_eq!(e.input, "123");
+            assert_eq!(e.code, ErrorKind::Eof);
+        } else {
+            assert!(false);
+        }
+
+        // Parsing the amount fails.
+        let result = parse_expense("c1 12d d1");
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        if let nom::Err::Error(e) = error {
+            assert_eq!(e.input, "12d d1");
+            assert_eq!(e.code, ErrorKind::MapRes);
+        } else {
+            assert!(false);
+        }
+
+        // Parsing a participant amount fails.
+        let result = parse_expense("c1 12 d1/3.aa");
+        assert!(result.is_err());
+        let error = result.unwrap_err();
+        if let nom::Err::Error(e) = error {
+            assert_eq!(e.input, "d1/3.aa");
+            assert_eq!(e.code, ErrorKind::Eof);
+        } else {
+            assert!(false);
+        }
 
         Ok(())
     }

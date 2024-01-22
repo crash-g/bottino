@@ -144,8 +144,8 @@ enum Command {
     #[command(description = "shortcut for the /listgroupmembers command")]
     Lgm(String),
     #[command(
-        description = "toggle the auto register mode: when active the participants in an expense are
-                             automatically registered as participants if they are not already"
+        description = "toggle the auto register mode: when active the participants in an expense are \
+                       automatically registered as participants if they are not already"
     )]
     ToggleAutoRegister,
     #[command(description = "return whether auto register mode is active")]
