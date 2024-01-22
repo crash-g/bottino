@@ -328,7 +328,8 @@ impl Database for SqliteDatabase {
                 let mut delete_member_stmt = tx.prepare_cached(
                     "UPDATE group_member SET deleted_at = CURRENT_TIMESTAMP
                      WHERE group_id = ?1 AND participant_id =
-                         (SELECT id FROM participant WHERE chat_id = ?2 AND name = ?3 AND deleted_at IS NULL)",
+                         (SELECT id FROM participant WHERE chat_id = ?2 AND name = ?3 AND deleted_at IS NULL)
+                     AND deleted_at IS NULL",
                 )?;
 
                 // It's unclear how to use an IN clause, so we use a loop
@@ -391,8 +392,8 @@ impl Database for SqliteDatabase {
                          INNER JOIN group_member gm ON pg.id = gm.group_id
                          INNER JOIN participant p ON gm.participant_id = p.id
                          WHERE pg.chat_id = :chat_id
-                         AND pg.name = :group_name AND pg.deleted_at IS NULL
-                         AND p.deleted_at IS NULL",
+                         AND pg.name = :group_name
+                         AND pg.deleted_at IS NULL AND gm.deleted_at IS NULL AND p.deleted_at IS NULL",
             )?;
 
             let group_member_iter =
