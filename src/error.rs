@@ -9,21 +9,21 @@ pub enum InputError {
     InvalidExpense(String, String),
 
     #[error(
-        "invalid participant name `{0}`: participant names must be alphanumeric, can only \
-             include ASCII characters and must start with a letter"
+        "invalid participant name `{0}`: participant names must start with a letter \
+         and must be alphanumeric"
     )]
     InvalidParticipantName(String),
 
     #[error(
-        "invalid alias `{0}`: participant names must be alphanumeric, can only \
-             include ASCII characters and must start with a letter"
+        "invalid alias `{0}`: aliases must start with a letter \
+         and must be alphanumeric"
     )]
     InvalidAliasName(String),
 
     #[error(
-        "invalid group name `{0}`: group names must be alphanumeric, can only \
-             include ASCII characters and must start with a letter. A `#` must be \
-             prepended when using them in expenses, but not in other cases"
+        "invalid group name `{0}`: group names must start with a letter \
+         and must be alphanumeric. A `#` must be \
+         prepended when using them in expenses, but not in other cases"
     )]
     InvalidGroupName(String),
 

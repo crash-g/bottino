@@ -5,16 +5,18 @@
 use std::{cmp::Ordering, iter::repeat, num::ParseIntError};
 
 use nom::{
-    branch::alt,
-    bytes::complete::tag,
-    character::complete::{alpha1, alphanumeric0, char, multispace0, not_line_ending},
-    combinator::{map, map_res, opt, recognize},
+    bytes::complete::{is_not, tag},
+    character::complete::{char, multispace0, not_line_ending},
+    combinator::{map, map_res, opt, recognize, verify},
     multi::many0,
     sequence::{preceded, tuple},
     AsChar, IResult, InputTakeAtPosition,
 };
 
-use crate::types::{Amount, ParsedExpense, ParsedParticipant};
+use crate::{
+    types::{Amount, ParsedExpense, ParsedParticipant},
+    validator::is_valid_name,
+};
 
 /// Parse an expense submitted by the user.
 ///
@@ -60,7 +62,7 @@ fn parse_participant_name(s: &str, is_creditor: bool) -> IResult<&str, ParsedPar
         let is_group = s.starts_with('#');
 
         let name = if s.starts_with('#') || s.starts_with('@') {
-            s[1..s.len()].to_lowercase()
+            s[1..].to_lowercase()
         } else {
             s.to_lowercase()
         };
@@ -76,12 +78,21 @@ fn parse_participant_name(s: &str, is_creditor: bool) -> IResult<&str, ParsedPar
         }
     };
 
+    fn is_valid(name: &str) -> bool {
+        if name.starts_with('@') || name.starts_with('#') {
+            is_valid_name(&name[1..])
+        } else {
+            is_valid_name(name)
+        }
+    }
+
     map(
-        recognize(alt((
-            preceded(alpha1, alphanumeric0),
-            preceded(char('@'), preceded(alpha1, alphanumeric0)),
-            preceded(char('#'), preceded(alpha1, alphanumeric0)),
-        ))),
+        recognize(
+            // Match until a whitespace or '/', '-' is found, then use is_valid
+            // to make sure that a name was matched (and not a number, which
+            // would be the amount).
+            verify(is_not(" \t\r\n/-"), is_valid),
+        ),
         do_parse,
     )(s)
 }
@@ -141,6 +152,7 @@ mod tests {
     #[test]
     fn test_parse_participant_name() {
         let participant = parse_participant_name("aBC", true);
+        dbg!("{}", &participant);
         assert!(participant.is_ok());
         let participant = participant.expect("test").1;
         assert_eq!(participant.name, "abc".to_string());
@@ -148,18 +160,19 @@ mod tests {
         assert!(participant.amount.is_none());
         assert!(!participant.is_group());
 
-        let participant = parse_participant_name("@Abc", false);
+        let participant = parse_participant_name("@Abë", false);
+        dbg!("{}", &participant);
         assert!(participant.is_ok());
         let participant = participant.expect("test").1;
-        assert_eq!(participant.name, "abc".to_string());
+        assert_eq!(participant.name, "abë".to_string());
         assert!(participant.is_debtor());
         assert!(participant.amount.is_none());
         assert!(!participant.is_group());
 
-        let participant = parse_participant_name("#ABC", false);
+        let participant = parse_participant_name("#AóBC", false);
         assert!(participant.is_ok());
         let participant = participant.expect("test").1;
-        assert_eq!(participant.name, "abc".to_string());
+        assert_eq!(participant.name, "aóbc".to_string());
         assert!(participant.is_debtor());
         assert!(participant.amount.is_none());
         assert!(participant.is_group());
@@ -201,7 +214,7 @@ mod tests {
     #[test]
     fn test_parse() -> anyhow::Result<()> {
         let (rest, expense) = parse_expense(
-            " @creditor1 creditor2/-21.1 34.3   Debtor1 debtor2/3  @debtor3/1 #group  - yoh",
+            " @creditor1 creditòr2/-21.1 34.3   Debtor1 debtor2/3  @debtor3/1 #ǵroup  - yoh",
         )?;
 
         assert_eq!(expense.participants.len(), 6);
@@ -210,7 +223,7 @@ mod tests {
         assert!(expense.participants[0].is_creditor());
         assert_eq!(expense.participants[0].amount, None);
 
-        assert_eq!(expense.participants[1].name, "creditor2");
+        assert_eq!(expense.participants[1].name, "creditòr2");
         assert!(expense.participants[1].is_creditor());
         assert_eq!(expense.participants[1].amount, Some(-2110));
 
@@ -226,7 +239,7 @@ mod tests {
         assert!(expense.participants[4].is_debtor());
         assert_eq!(expense.participants[4].amount, Some(100));
 
-        assert_eq!(expense.participants[5].name, "group");
+        assert_eq!(expense.participants[5].name, "ǵroup");
         assert!(expense.participants[5].is_debtor());
         assert_eq!(expense.participants[5].amount, None);
         assert!(expense.participants[5].is_group());
