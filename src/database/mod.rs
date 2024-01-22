@@ -1,5 +1,7 @@
 //! Internal representation of data.
 
+use std::collections::HashMap;
+
 use chrono::{DateTime, Utc};
 
 use crate::{
@@ -73,6 +75,9 @@ pub trait Database {
 
     /// Get the list of all participants in the given chat.
     fn get_participants(&self, chat_id: i64) -> Result<Vec<String>, DatabaseError>;
+
+    /// Get the list of all aliases in the given chat.
+    fn get_aliases(&self, chat_id: i64) -> Result<HashMap<String, String>, DatabaseError>;
 
     /// Add a group with the given *group_name*.
     ///

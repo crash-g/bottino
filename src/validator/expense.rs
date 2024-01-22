@@ -12,42 +12,24 @@ use crate::database::Database;
 use crate::error::InputError;
 use crate::types::{ParsedExpense, ParsedParticipant};
 
-/// Check that groups do not have custom amount set and replace them with their members.
-pub async fn validate_and_resolve_groups<D: Database>(
-    mut expense: ParsedExpense,
+/// Check that groups do not have custom amount set and that they exist.
+pub async fn validate_groups<D: Database>(
+    expense: &ParsedExpense,
     chat_id: i64,
     database: &Arc<Mutex<D>>,
-) -> anyhow::Result<ParsedExpense> {
+) -> anyhow::Result<()> {
+    let groups = database.lock().await.get_groups(chat_id)?;
+    let groups = groups.into_iter().collect::<HashSet<_>>();
+
     for participant in &expense.participants {
         if participant.is_group() && participant.amount.is_some() {
             return Err(InputError::group_with_custom_amount().into());
+        } else if !groups.contains(&participant.name) {
+            return Err(InputError::unregistered_group(participant.name.clone()).into());
         }
     }
 
-    let mut participants = Vec::with_capacity(expense.participants.len());
-
-    for participant in expense.participants {
-        if participant.is_group() {
-            let members = database
-                .lock()
-                .await
-                .get_group_members(chat_id, &participant.name)?;
-
-            for member in members {
-                let p = if participant.is_creditor() {
-                    ParsedParticipant::new_creditor(&member, None)
-                } else {
-                    ParsedParticipant::new_debtor(&member, None)
-                };
-                participants.push(p);
-            }
-        } else {
-            participants.push(participant);
-        }
-    }
-
-    expense.participants = participants;
-    Ok(expense)
+    Ok(())
 }
 
 /// Some sanity checks on the expense that was submitted.
