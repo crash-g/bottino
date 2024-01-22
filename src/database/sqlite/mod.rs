@@ -174,7 +174,9 @@ impl Database for SqliteDatabase {
                 // and NULL values are considered distinct (https://www.sqlite.org/nulls.html).
                 let mut insert_participant_stmt = tx.prepare_cached(
                     "INSERT INTO participant (chat_id, name) SELECT ?1, ?2
-                     WHERE NOT EXISTS (SELECT 1 FROM participant WHERE chat_id = ?1 AND name = ?2)",
+                     WHERE NOT EXISTS (
+                         SELECT 1 FROM participant WHERE chat_id = ?1 AND name = ?2 AND deleted_at IS NULL
+                     )",
                 )?;
                 // It's unclear how to use an IN clause, so we use a loop
                 // https://github.com/rusqlite/rusqlite/issues/345
@@ -242,7 +244,9 @@ impl Database for SqliteDatabase {
             // and NULL values are considered distinct (https://www.sqlite.org/nulls.html).
             self.connection.execute(
                 "INSERT INTO participant_group (chat_id, name) SELECT ?1, ?2
-                 WHERE NOT EXISTS (SELECT 1 FROM participant_group WHERE chat_id = ?1 AND name = ?2)",
+                 WHERE NOT EXISTS (
+                     SELECT 1 FROM participant_group WHERE chat_id = ?1 AND name = ?2 AND deleted_at IS NULL
+                 )",
                 params![&chat_id, &group_name],
             )?;
 
@@ -294,7 +298,9 @@ impl Database for SqliteDatabase {
                 // and NULL values are considered distinct (https://www.sqlite.org/nulls.html).
                 let mut insert_member_stmt = tx.prepare_cached(
                     "INSERT INTO group_member (group_id, participant_id) SELECT ?1, ?2
-                     WHERE NOT EXISTS (SELECT 1 FROM group_member WHERE group_id = ?1 AND participant_id = ?2)",
+                     WHERE NOT EXISTS (
+                         SELECT 1 FROM group_member WHERE group_id = ?1 AND participant_id = ?2 AND deleted_at IS NULL
+                     )",
                 )?;
                 // It's unclear how to use an IN clause, so we use a loop
                 // https://github.com/rusqlite/rusqlite/issues/345
@@ -537,7 +543,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn test_add_participants() -> anyhow::Result<()> {
+    fn test_add_and_remove_participants() -> anyhow::Result<()> {
         let (mut database, _tmp_dir) = temp_database()?;
 
         let chat_id = 1;
@@ -553,19 +559,30 @@ mod tests {
 
         let participants = &["aa", "cc"];
         database.add_participants_if_not_exist(chat_id, participants)?;
+        assert_eq!(3, database.get_participants(chat_id)?.len());
 
-        let mut stmt = database
-            .connection
-            .prepare("SELECT name FROM participant WHERE chat_id = :chat_id")?;
+        // Now remove one participant and then add it back.
 
-        let iter = stmt.query_map(params![&chat_id], |row| row.get(0))?;
+        database.remove_participants_if_exist(chat_id, &["bb"])?;
+        assert_eq!(2, database.get_participants(chat_id)?.len());
 
-        let saved_participants: Vec<String> = iter.collect::<Result<_, _>>()?;
-        assert_eq!(3, saved_participants.len());
-        assert_eq!(
-            to_hash_set(vec!["aa", "bb", "cc"]),
-            to_hash_set(saved_participants)
-        );
+        database.add_participants_if_not_exist(chat_id, &["bb"])?;
+        assert_eq!(3, database.get_participants(chat_id)?.len());
+
+        {
+            let mut stmt = database
+                .connection
+                .prepare("SELECT name FROM participant WHERE chat_id = :chat_id")?;
+
+            let iter = stmt.query_map(params![&chat_id], |row| row.get(0))?;
+
+            let saved_participants: Vec<String> = iter.collect::<Result<_, _>>()?;
+            assert_eq!(4, saved_participants.len());
+            assert_eq!(
+                to_hash_set(vec!["aa", "bb", "cc"]),
+                to_hash_set(saved_participants)
+            );
+        }
 
         Ok(())
     }
