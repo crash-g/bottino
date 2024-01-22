@@ -24,6 +24,16 @@ where it is started.
 - add interactive mode to delete expense
 - add interactive mode to list expenses
 
+### Group commands
+
+The group name must be preceded by `#`.
+
+- /addgroup group_name p1 p2 p3
+- /addgroupmembers group_name p1 p2 p3
+- /removegroupmembers group_name p1 p2 p3
+- /listgroups
+- /listgroupmembers group_name
+
 ## Useful links
 
 - [Telegram bot library](https://crates.io/crates/teloxide)

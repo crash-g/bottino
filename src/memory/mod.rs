@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::types::{Expense, ExpenseWithId};
+use crate::types::{ParsedExpense, SavedExpense};
 
 pub mod sqlite;
 
@@ -15,7 +15,7 @@ pub trait Memory {
     fn save_expense_with_message(
         &mut self,
         chat_id: i64,
-        expense: Expense,
+        expense: ParsedExpense,
         message_ts: DateTime<Utc>,
     ) -> anyhow::Result<()>;
 
@@ -23,7 +23,7 @@ pub trait Memory {
     ///
     /// An expense is active if it is neither settled nor deleted. Each returned expense
     /// must have a unique ID, that can be used to delete it.
-    fn get_active_expenses(&self, chat_id: i64) -> anyhow::Result<Vec<ExpenseWithId>>;
+    fn get_active_expenses(&self, chat_id: i64) -> anyhow::Result<Vec<SavedExpense>>;
 
     /// Get the latest active expenses, restricting the list by the given *limit*.
     ///
@@ -33,7 +33,7 @@ pub trait Memory {
         &self,
         chat_id: i64,
         limit: usize,
-    ) -> anyhow::Result<Vec<ExpenseWithId>>;
+    ) -> anyhow::Result<Vec<SavedExpense>>;
 
     /// Mark all active expenses as settled.
     ///

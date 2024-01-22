@@ -12,14 +12,14 @@ use nom::{
     AsChar, IResult, InputTakeAtPosition,
 };
 
-use crate::types::{Amount, Expense, Participant};
+use crate::types::{Amount, ParsedExpense, ParsedParticipant};
 
 /// Parse an expense submitted by the user.
 ///
 /// For the expense syntax, you can refer to the bot instructions
 /// (INSTRUCTIONS.md). Some basic checks are performed by the parser, while
 /// other checks are executed later.
-pub fn parse_expense(s: &str) -> IResult<&str, Expense> {
+pub fn parse_expense(s: &str) -> IResult<&str, ParsedExpense> {
     let (s, creditors) = parse_participants(s, true)?;
     let (s, amount) = parse_amount(s)?;
     let (s, mut debtors) = parse_participants(s, false)?;
@@ -29,15 +29,15 @@ pub fn parse_expense(s: &str) -> IResult<&str, Expense> {
     participants.append(&mut debtors);
     let message = message.map(|m| m.to_string());
 
-    Ok((s, Expense::new(participants, amount, message)))
+    Ok((s, ParsedExpense::new(participants, amount, message)))
 }
 
-fn parse_participants(s: &str, are_creditors: bool) -> IResult<&str, Vec<Participant>> {
+fn parse_participants(s: &str, are_creditors: bool) -> IResult<&str, Vec<ParsedParticipant>> {
     let do_parse_participant = |x: (&str, Option<Amount>)| {
         if are_creditors {
-            Participant::new_creditor(x.0, x.1)
+            ParsedParticipant::new_creditor(x.0, x.1)
         } else {
-            Participant::new_debtor(x.0, x.1)
+            ParsedParticipant::new_debtor(x.0, x.1)
         }
     };
 

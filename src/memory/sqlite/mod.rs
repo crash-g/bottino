@@ -7,8 +7,9 @@ use rusqlite::{params, Connection, Params, Statement};
 use std::collections::HashMap;
 use tokio::task::block_in_place;
 
+use crate::types::{ParsedExpense, SavedExpense, SavedParticipant};
+
 use super::Memory;
-use crate::types::{Expense, ExpenseWithId, Participant};
 
 mod schema;
 
@@ -30,7 +31,7 @@ impl Memory for SqliteMemory {
     fn save_expense_with_message(
         &mut self,
         chat_id: i64,
-        expense: Expense,
+        expense: ParsedExpense,
         message_ts: DateTime<Utc>,
     ) -> anyhow::Result<()> {
         block_in_place(|| {
@@ -57,7 +58,7 @@ impl Memory for SqliteMemory {
         })
     }
 
-    fn get_active_expenses(&self, chat_id: i64) -> anyhow::Result<Vec<ExpenseWithId>> {
+    fn get_active_expenses(&self, chat_id: i64) -> anyhow::Result<Vec<SavedExpense>> {
         block_in_place(|| {
             let stmt = self
                 .connection
@@ -79,7 +80,7 @@ impl Memory for SqliteMemory {
         &self,
         chat_id: i64,
         limit: usize,
-    ) -> anyhow::Result<Vec<ExpenseWithId>> {
+    ) -> anyhow::Result<Vec<SavedExpense>> {
         block_in_place(|| {
             let stmt = self
                 .connection
@@ -127,7 +128,7 @@ impl Memory for SqliteMemory {
 fn query_active_expenses(
     mut statement: Statement,
     params: impl Params,
-) -> anyhow::Result<Vec<ExpenseWithId>> {
+) -> anyhow::Result<Vec<SavedExpense>> {
     let expense_iter = statement
         .query_map(params, |row| {
             Ok(ActiveExpenseQuery {
@@ -145,11 +146,11 @@ fn query_active_expenses(
     Ok(parse_active_expenses_query(expenses?))
 }
 
-fn parse_active_expenses_query(expenses: Vec<ActiveExpenseQuery>) -> Vec<ExpenseWithId> {
+fn parse_active_expenses_query(expenses: Vec<ActiveExpenseQuery>) -> Vec<SavedExpense> {
     let mut result = HashMap::new();
     for active_expense in expenses {
         let entry = result.entry(active_expense.id).or_insert_with(|| {
-            ExpenseWithId::new(
+            SavedExpense::new(
                 active_expense.id,
                 vec![],
                 active_expense.e_amount,
@@ -160,9 +161,9 @@ fn parse_active_expenses_query(expenses: Vec<ActiveExpenseQuery>) -> Vec<Expense
         let name = &active_expense.p_name;
         let amount = active_expense.p_amount;
         let participant = if active_expense.p_is_creditor {
-            Participant::new_creditor(name, amount)
+            SavedParticipant::new_creditor(name, amount)
         } else {
-            Participant::new_debtor(name, amount)
+            SavedParticipant::new_debtor(name, amount)
         };
         entry.participants.push(participant);
     }

@@ -5,11 +5,11 @@
 use std::iter::repeat;
 use teloxide::utils::markdown::{bold, escape};
 
-use crate::types::{Amount, ExpenseWithId, MoneyExchange, Participant, ParticipantMode};
+use crate::types::{Amount, SavedExpense, MoneyExchange, SavedParticipant, ParticipantMode};
 
 const AMOUNT_TO_FLOAT_DIVISOR: f64 = 100.0;
 
-pub fn format_list_expenses(expenses: &[ExpenseWithId]) -> String {
+pub fn format_list_expenses(expenses: &[SavedExpense]) -> String {
     if expenses.is_empty() {
         escape("Nothing to show!")
     } else {
@@ -20,7 +20,7 @@ pub fn format_list_expenses(expenses: &[ExpenseWithId]) -> String {
     }
 }
 
-fn format_expense(expense: &ExpenseWithId) -> String {
+fn format_expense(expense: &SavedExpense) -> String {
     let result = format!(
         "💰  {}: {} {} {}",
         expense.id,
@@ -42,7 +42,7 @@ fn format_amount(amount: Amount) -> String {
     format!("{:.2}", amount)
 }
 
-fn format_participants(expense: &ExpenseWithId, are_creditors: bool) -> String {
+fn format_participants(expense: &SavedExpense, are_creditors: bool) -> String {
     let mode = if are_creditors {
         ParticipantMode::Creditor
     } else {
@@ -56,7 +56,7 @@ fn format_participants(expense: &ExpenseWithId, are_creditors: bool) -> String {
         .fold(String::new(), |a, b| a + &b + " ")
 }
 
-fn format_participant(participant: &Participant) -> String {
+fn format_participant(participant: &SavedParticipant) -> String {
     if participant.amount.is_some() {
         let amount = participant.amount.unwrap() as f64 / AMOUNT_TO_FLOAT_DIVISOR;
         format!("{}/{:.2}", participant.name, amount)
@@ -106,11 +106,11 @@ mod tests {
     #[test]
     fn test_format_expense() {
         let participants = vec![
-            Participant::new_debtor("aa", None),
-            Participant::new_debtor("bbb", Some(123)),
-            Participant::new_creditor("cccc", None),
+            SavedParticipant::new_debtor("aa", None),
+            SavedParticipant::new_debtor("bbb", Some(123)),
+            SavedParticipant::new_creditor("cccc", None),
         ];
-        let expense = ExpenseWithId::new(1, participants, 4343, None);
+        let expense = SavedExpense::new(1, participants, 4343, None);
         let result = format_expense(&expense);
         assert_eq!("💰  1: cccc  *43\\.43* aa bbb/1\\.23 ", result);
     }
