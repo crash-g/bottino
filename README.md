@@ -19,6 +19,7 @@ where it is started.
 
 ## TODO list
 
+- add a `list_all` command that also lists settled expenses (?)
 - turn foreign keys on with `PRAGMA foreign_keys = ON;` (?)
 
 ## Future plans
