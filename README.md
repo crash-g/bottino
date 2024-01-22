@@ -17,9 +17,6 @@ where it is started.
 
 ## TODO list
 
-- denormalize participant name in participant_expense table: this will prevent problems if the
-  participant is deleted; in alternative, use soft deletion on the table: this will pave the way to
-  support display names for participants
 - add aliases
 - add interactive mode to delete expense (?)
 - add interactive mode to list expenses (?)

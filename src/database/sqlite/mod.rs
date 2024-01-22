@@ -1,6 +1,5 @@
 //! The implementation of a data storage using Sqlite.
 
-use anyhow::{anyhow, Context};
 use chrono::{DateTime, Utc};
 use log::debug;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -59,7 +58,7 @@ impl Database for SqliteDatabase {
                 let mut insert_participant_stmt = tx.prepare_cached(
                     "INSERT INTO expense_participant (expense_id, participant_id, is_creditor, amount)
                 SELECT ?1, id, ?2, ?3 FROM participant
-                WHERE chat_id = ?4 AND name = ?5"
+                WHERE chat_id = ?4 AND name = ?5 AND deleted_at IS NULL"
                 )?;
 
                 for participant in expense.participants {
@@ -72,8 +71,7 @@ impl Database for SqliteDatabase {
                     ])?;
                     if num_inserted_rows == 0 {
                         return Err(
-                            // This is a concurrency error: fail and let the user try again.
-                            anyhow!("the participant was not found"),
+                            DatabaseError::concurrency("the participant was not found").into()
                         );
                     }
                 }
@@ -84,9 +82,7 @@ impl Database for SqliteDatabase {
             Ok(())
         };
 
-        block_in_place(|| {
-            fn_impl().map_err(|e| DatabaseError::new("cannot save expense with message", e))
-        })
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot save expense with message", e)))
     }
 
     fn get_active_expenses(&self, chat_id: i64) -> DatabaseResult<Vec<SavedExpense>> {
@@ -113,9 +109,7 @@ impl Database for SqliteDatabase {
             Ok(parse_active_expenses_query(expenses?))
         };
 
-        block_in_place(|| {
-            fn_impl().map_err(|e| DatabaseError::new("cannot get active expenses", e))
-        })
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot get active expenses", e)))
     }
 
     fn get_active_expenses_with_limit(
@@ -140,37 +134,31 @@ impl Database for SqliteDatabase {
     fn mark_all_as_settled(&self, chat_id: i64) -> DatabaseResult<()> {
         debug!("Marking all as settled using current timestamp. Chat ID: {chat_id}");
         let fn_impl = || {
-            self.connection
-                .execute(
-                    "UPDATE expense SET settled_at = CURRENT_TIMESTAMP
+            self.connection.execute(
+                "UPDATE expense SET settled_at = CURRENT_TIMESTAMP
                  WHERE chat_id = ?1 AND settled_at IS NULL",
-                    params![&chat_id],
-                )
-                .with_context(|| "Query to set all settled failed")?;
+                params![&chat_id],
+            )?;
 
             Ok(())
         };
 
-        block_in_place(|| {
-            fn_impl().map_err(|e| DatabaseError::new("cannot mark all as settled", e))
-        })
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot mark all as settled", e)))
     }
 
     fn delete_expense(&self, chat_id: i64, expense_id: i64) -> DatabaseResult<()> {
         debug!("Deleting expense. Chat ID: {chat_id}. Expense ID: {expense_id}");
         let fn_impl = || {
-            self.connection
-                .execute(
-                    "UPDATE expense SET deleted_at = CURRENT_TIMESTAMP
+            self.connection.execute(
+                "UPDATE expense SET deleted_at = CURRENT_TIMESTAMP
                  WHERE chat_id = ?1 AND id = ?2 AND settled_at IS NULL AND deleted_at IS NULL",
-                    params![&chat_id, &expense_id],
-                )
-                .with_context(|| "Query to delete expense failed")?;
+                params![&chat_id, &expense_id],
+            )?;
 
             Ok(())
         };
 
-        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot delete expense", e)))
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot delete expense", e)))
     }
 
     fn add_participants_if_not_exist<T: AsRef<str>>(
@@ -182,11 +170,9 @@ impl Database for SqliteDatabase {
             let tx = self.connection.transaction()?;
 
             {
-                let mut insert_participant_stmt = tx
-                    .prepare_cached(
-                        "INSERT OR IGNORE INTO participant (chat_id, name) VALUES (?1, ?2)",
-                    )
-                    .with_context(|| "Could not prepare add participants statement")?;
+                let mut insert_participant_stmt = tx.prepare_cached(
+                    "INSERT OR IGNORE INTO participant (chat_id, name) VALUES (?1, ?2)",
+                )?;
                 // It's unclear how to use an IN clause, so we use a loop
                 // https://github.com/rusqlite/rusqlite/issues/345
                 for participant in participants {
@@ -199,7 +185,7 @@ impl Database for SqliteDatabase {
             Ok(())
         };
 
-        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot add participants", e)))
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot add participants", e)))
     }
 
     fn remove_participants_if_exist<T: AsRef<str>>(
@@ -212,25 +198,14 @@ impl Database for SqliteDatabase {
 
             {
                 let mut delete_participant_stmt = tx.prepare_cached(
-                    "DELETE FROM participant WHERE chat_id = ?1 AND name = ?2 RETURNING id",
+                    "UPDATE participant SET deleted_at = CURRENT_TIMESTAMP
+                     WHERE chat_id = ?1 AND name = ?2 AND deleted_at IS NULL",
                 )?;
 
+                // It's unclear how to use an IN clause, so we use a loop
+                // https://github.com/rusqlite/rusqlite/issues/345
                 for participant in participants {
-                    let participant_id: Option<i64> = delete_participant_stmt
-                        .query_row(params![&chat_id, &participant.as_ref()], |row| row.get(0))
-                        .optional()?;
-
-                    if participant_id.is_some() {
-                        let mut delete_member_stmt = tx.prepare_cached(
-                            "DELETE FROM group_member WHERE participant_id = ?1 AND group_id IN
-                         (SELECT id FROM participant_group WHERE chat_id = ?2)",
-                        )?;
-
-                        delete_member_stmt.execute(params![
-                            &participant_id.expect("Just checked that participant_id is not empty"),
-                            &chat_id
-                        ])?;
-                    }
+                    delete_participant_stmt.execute(params![&chat_id, &participant.as_ref()])?;
                 }
             }
 
@@ -239,27 +214,23 @@ impl Database for SqliteDatabase {
             Ok(())
         };
 
-        block_in_place(|| {
-            fn_impl().map_err(|e| DatabaseError::new("cannot remove participants", e))
-        })
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot remove participants", e)))
     }
 
     fn get_participants(&self, chat_id: i64) -> DatabaseResult<Vec<String>> {
         let fn_impl = || {
-            let mut stmt = self
-                .connection
-                .prepare_cached("SELECT name FROM participant WHERE chat_id = :chat_id")
-                .with_context(|| "Could not prepare get participants statement")?;
+            let mut stmt = self.connection.prepare_cached(
+                "SELECT name FROM participant
+                 WHERE chat_id = :chat_id AND deleted_at IS NULL",
+            )?;
 
-            let participant_iter = stmt
-                .query_map(params![&chat_id], |row| row.get(0))
-                .with_context(|| "Query to get participants failed")?;
+            let participant_iter = stmt.query_map(params![&chat_id], |row| row.get(0))?;
 
             let participants = participant_iter.collect::<Result<_, _>>()?;
             Ok(participants)
         };
 
-        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot get participants", e)))
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot get participants", e)))
     }
 
     fn create_group_if_not_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
@@ -272,35 +243,23 @@ impl Database for SqliteDatabase {
             Ok(())
         };
 
-        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot create group", e)))
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot create group", e)))
     }
 
     fn delete_group_if_exists(&mut self, chat_id: i64, group_name: &str) -> DatabaseResult<()> {
         debug!("Deleting group. Chat ID: {chat_id}. Group name: {group_name}");
-        let mut fn_impl = || {
-            let tx = self.connection.transaction()?;
+        let fn_impl = || {
+            let mut delete_group_stmt = self.connection.prepare_cached(
+                "UPDATE participant_group SET deleted_at = CURRENT_TIMESTAMP
+                 WHERE chat_id = ?1 AND name = ?2 AND deleted_at IS NULL",
+            )?;
 
-            let group_id: Option<i64> = tx
-                .query_row(
-                    "DELETE FROM participant_group WHERE chat_id = ?1 AND name = ?2 RETURNING id",
-                    params![&chat_id, &group_name],
-                    |row| row.get(0),
-                )
-                .optional()?;
-
-            if group_id.is_some() {
-                tx.execute(
-                    "DELETE FROM group_member WHERE group_id = :group_id",
-                    params![&group_id.expect("Just checked that group_id is not empty")],
-                )?;
-            }
-
-            tx.commit()?;
+            delete_group_stmt.execute(params![&chat_id, group_name])?;
 
             Ok(())
         };
 
-        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot delete group", e)))
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot delete group", e)))
     }
 
     fn add_group_members_if_not_exist<T: AsRef<str>>(
@@ -313,7 +272,8 @@ impl Database for SqliteDatabase {
             let tx = self.connection.transaction()?;
 
             let group_id: i64 = tx.query_row(
-                "SELECT id FROM participant_group WHERE chat_id = :chat_id AND name = :group_name",
+                "SELECT id FROM participant_group
+                 WHERE chat_id = :chat_id AND name = :group_name AND deleted_at IS NULL",
                 params![&chat_id, &group_name],
                 |row| row.get(0),
             )?;
@@ -322,7 +282,7 @@ impl Database for SqliteDatabase {
                 let mut insert_member_stmt = tx.prepare_cached(
                     "INSERT OR IGNORE INTO group_member (group_id, participant_id)
                      SELECT ?1, id FROM participant
-                     WHERE chat_id = ?2 AND name = ?3",
+                     WHERE chat_id = ?2 AND name = ?3 AND deleted_at IS NULL",
                 )?;
                 // It's unclear how to use an IN clause, so we use a loop
                 // https://github.com/rusqlite/rusqlite/issues/345
@@ -334,8 +294,7 @@ impl Database for SqliteDatabase {
                     ])?;
                     if num_inserted_rows == 0 {
                         return Err(
-                            // This is a concurrency error: fail and let the user try again.
-                            anyhow!("the participant was not found"),
+                            DatabaseError::concurrency("the participant was not found").into()
                         );
                     }
                 }
@@ -346,7 +305,7 @@ impl Database for SqliteDatabase {
             Ok(())
         };
 
-        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot add group members", e)))
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot add group members", e)))
     }
 
     fn remove_group_members_if_exist<T: AsRef<str>>(
@@ -359,15 +318,17 @@ impl Database for SqliteDatabase {
             let tx = self.connection.transaction()?;
 
             let group_id: i64 = tx.query_row(
-                "SELECT id FROM participant_group WHERE chat_id = :chat_id AND name = :group_name",
+                "SELECT id FROM participant_group
+                 WHERE chat_id = :chat_id AND name = :group_name AND deleted_at IS NULL",
                 params![&chat_id, &group_name],
                 |row| row.get(0),
             )?;
 
             {
                 let mut delete_member_stmt = tx.prepare_cached(
-                    "DELETE FROM group_member WHERE group_id = ?1 AND participant_id =
-                         (SELECT id FROM participant WHERE chat_id = ?2 AND name = ?3)",
+                    "UPDATE group_member SET deleted_at = CURRENT_TIMESTAMP
+                     WHERE group_id = ?1 AND participant_id =
+                         (SELECT id FROM participant WHERE chat_id = ?2 AND name = ?3 AND deleted_at IS NULL)",
                 )?;
 
                 // It's unclear how to use an IN clause, so we use a loop
@@ -382,27 +343,23 @@ impl Database for SqliteDatabase {
             Ok(())
         };
 
-        block_in_place(|| {
-            fn_impl().map_err(|e| DatabaseError::new("cannot remove group members", e))
-        })
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot remove group members", e)))
     }
 
     fn get_groups(&self, chat_id: i64) -> DatabaseResult<Vec<String>> {
         let fn_impl = || {
-            let mut stmt = self
-                .connection
-                .prepare_cached("SELECT name FROM participant_group WHERE chat_id = :chat_id")
-                .with_context(|| "Could not prepare get groups statement")?;
+            let mut stmt = self.connection.prepare_cached(
+                "SELECT name FROM participant_group
+                                 WHERE chat_id = :chat_id AND deleted_at IS NULL",
+            )?;
 
-            let group_iter = stmt
-                .query_map(params![&chat_id], |row| row.get(0))
-                .with_context(|| "Query to get groups failed")?;
+            let group_iter = stmt.query_map(params![&chat_id], |row| row.get(0))?;
 
             let groups = group_iter.collect::<Result<_, _>>()?;
             Ok(groups)
         };
 
-        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot get groups", e)))
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot get groups", e)))
     }
 
     fn group_exists(&self, chat_id: i64, group_name: &str) -> DatabaseResult<bool> {
@@ -410,10 +367,12 @@ impl Database for SqliteDatabase {
             let group_id: Option<i64> = self
                 .connection
                 .query_row(
-                    "SELECT id FROM participant_group WHERE chat_id = :chat_id AND name = :group_name",
+                    "SELECT id FROM participant_group
+                     WHERE chat_id = :chat_id AND name = :group_name AND deleted_at IS NULL",
                     params![&chat_id, &group_name],
                     |row| row.get(0),
-                ).optional()?;
+                )
+                .optional()?;
 
             if group_id.is_none() {
                 Ok(false)
@@ -422,32 +381,28 @@ impl Database for SqliteDatabase {
             }
         };
 
-        block_in_place(|| {
-            fn_impl().map_err(|e| DatabaseError::new("cannot check if group exists", e))
-        })
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot check if group exists", e)))
     }
 
     fn get_group_members(&self, chat_id: i64, group_name: &str) -> DatabaseResult<Vec<String>> {
         let fn_impl = || {
-            let mut stmt = self
-                .connection
-                .prepare_cached(
-                    "SELECT p.name FROM participant_group pg
+            let mut stmt = self.connection.prepare_cached(
+                "SELECT p.name FROM participant_group pg
                          INNER JOIN group_member gm ON pg.id = gm.group_id
                          INNER JOIN participant p ON gm.participant_id = p.id
-                         WHERE pg.chat_id = :chat_id AND pg.name = :group_name",
-                )
-                .with_context(|| "Could not prepare get group members statement")?;
+                         WHERE pg.chat_id = :chat_id
+                         AND pg.name = :group_name AND pg.deleted_at IS NULL
+                         AND p.deleted_at IS NULL",
+            )?;
 
-            let group_member_iter = stmt
-                .query_map(params![&chat_id, &group_name], |row| row.get(0))
-                .with_context(|| "Query to get group members failed")?;
+            let group_member_iter =
+                stmt.query_map(params![&chat_id, &group_name], |row| row.get(0))?;
 
             let group_members = group_member_iter.collect::<Result<_, _>>()?;
             Ok(group_members)
         };
 
-        block_in_place(|| fn_impl().map_err(|e| DatabaseError::new("cannot get group members", e)))
+        block_in_place(|| fn_impl().map_err(|e| map_error("cannot get group members", e)))
     }
 }
 
@@ -483,6 +438,13 @@ struct ActiveExpenseQuery {
     p_name: String,
     p_is_creditor: bool,
     p_amount: Option<i64>,
+}
+
+fn map_error<T: AsRef<str>>(message: T, e: anyhow::Error) -> DatabaseError {
+    match e.downcast::<DatabaseError>() {
+        Ok(e) => e,
+        Err(e) => DatabaseError::new(message, e),
+    }
 }
 
 #[cfg(test)]
