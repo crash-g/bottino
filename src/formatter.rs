@@ -107,6 +107,17 @@ fn make_string_of_char(c: char, length: usize) -> String {
     repeat(c).take(length).collect::<String>()
 }
 
+pub fn format_simple_list<T: AsRef<str>>(elements: &[T]) -> String {
+    if elements.is_empty() {
+        format!("Nothing to show!")
+    } else {
+        elements
+            .iter()
+            .map(|g| format!("- {}", g.as_ref()))
+            .fold(String::new(), |a, b| a + &b + "\n")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -134,5 +145,13 @@ mod tests {
         let result = format_balance(&exchanges);
 
         assert_eq!("💰  aa   💸  *34*  bb 🤑\n💰  aacc 💸  *21\\.12*  bb 🤑\n💰  abc  💸  *323\\.23*  bb 🤑\n", result);
+    }
+
+    #[test]
+    fn test_format_simple_list() {
+        let elements = vec!["g1", "g2", "g3"];
+        let result = format_simple_list(elements);
+
+        assert_eq!("- g1\n- g2\n- g3\n", result);
     }
 }

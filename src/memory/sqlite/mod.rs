@@ -3,7 +3,7 @@
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use log::{debug, info};
-use rusqlite::{params, CachedStatement, Connection, Params};
+use rusqlite::{params, CachedStatement, Connection, OptionalExtension, Params};
 use std::collections::HashMap;
 use tokio::task::block_in_place;
 
@@ -141,18 +141,34 @@ impl Memory for SqliteMemory {
         })
     }
 
-    fn create_group(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()> {
+    fn create_group_if_not_exists(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()> {
+        block_in_place(|| {
+            self.connection.execute(
+                "INSERT OR IGNORE INTO participant_group (chat_id, name) VALUES (?1, ?2)",
+                params![&chat_id, &group_name],
+            )?;
+
+            Ok(())
+        })
+    }
+
+    fn delete_group_if_exists(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()> {
+        info!("Deleting group. Chat ID: {chat_id}. Group name: {group_name}");
         block_in_place(|| {
             let tx = self.connection.transaction()?;
-            let num_groups: i64 = tx.query_row(
-                "SELECT COUNT(*) FROM participant_group WHERE chat_id = :chat_id AND name = :name",
-                params![&chat_id, &group_name],
-                |row| row.get(0),
-            )?;
-            if num_groups == 0 {
-                tx.execute(
-                    "INSERT INTO participant_group (chat_id, name) VALUES (?1, ?2)",
+
+            let group_id: Option<i64> = tx
+                .query_row(
+                    "DELETE FROM participant_group WHERE chat_id = ?1 AND name = ?2 RETURNING id",
                     params![&chat_id, &group_name],
+                    |row| row.get(0),
+                )
+                .optional()?;
+
+            if group_id.is_some() {
+                tx.execute(
+                    "DELETE FROM group_member WHERE group_id = :group_id",
+                    params![&group_id.expect("Just checked that group_id is not empty")],
                 )?;
             }
 
@@ -162,33 +178,11 @@ impl Memory for SqliteMemory {
         })
     }
 
-    fn remove_group(&mut self, chat_id: i64, group_name: &str) -> anyhow::Result<()> {
-        info!("Deleting group. Chat ID: {chat_id}. Group name: {group_name}");
-        block_in_place(|| {
-            let tx = self.connection.transaction()?;
-
-            let group_id: i64 = tx.query_row(
-                "DELETE FROM participant_group WHERE chat_id = ?1 AND name = ?2 RETURNING id",
-                params![&chat_id, &group_name],
-                |row| row.get(0),
-            )?;
-
-            tx.execute(
-                "DELETE FROM group_member WHERE group_id = :group_id",
-                params![&group_id],
-            )?;
-
-            tx.commit()?;
-
-            Ok(())
-        })
-    }
-
-    fn add_group_members(
+    fn add_group_members_if_not_exist<T: AsRef<str>>(
         &mut self,
         chat_id: i64,
         group_name: &str,
-        members: &[&str],
+        members: &[T],
     ) -> anyhow::Result<()> {
         block_in_place(|| {
             let tx = self.connection.transaction()?;
@@ -201,8 +195,8 @@ impl Memory for SqliteMemory {
 
             for member in members {
                 tx.execute(
-                    "INSERT INTO group_member (name, group_id) VALUES (?1, ?2)",
-                    params![&member, &group_id],
+                    "INSERT OR IGNORE INTO group_member (name, group_id) VALUES (?1, ?2)",
+                    params![&member.as_ref(), &group_id],
                 )?;
             }
 
@@ -212,11 +206,11 @@ impl Memory for SqliteMemory {
         })
     }
 
-    fn remove_group_members(
+    fn remove_group_members_if_exist<T: AsRef<str>>(
         &mut self,
         chat_id: i64,
         group_name: &str,
-        members: &[&str],
+        members: &[T],
     ) -> anyhow::Result<()> {
         block_in_place(|| {
             let tx = self.connection.transaction()?;
@@ -232,7 +226,7 @@ impl Memory for SqliteMemory {
             for member in members {
                 tx.execute(
                     "DELETE FROM group_member WHERE group_id = ?1 AND name = ?2",
-                    params![&group_id, &member],
+                    params![&group_id, &member.as_ref()],
                 )?;
             }
 
@@ -258,6 +252,24 @@ impl Memory for SqliteMemory {
         })
     }
 
+    fn group_exists(&self, chat_id: i64, group_name: &str) -> anyhow::Result<bool> {
+        block_in_place(|| {
+            let group_id: Option<i64> = self
+                .connection
+                .query_row(
+                    "SELECT id FROM participant_group WHERE chat_id = :chat_id AND name = :group_name",
+                    params![&chat_id, &group_name],
+                    |row| row.get(0),
+                ).optional()?;
+
+            if group_id.is_none() {
+                Ok(false)
+            } else {
+                Ok(true)
+            }
+        })
+    }
+
     fn get_group_members(&self, chat_id: i64, group_name: &str) -> anyhow::Result<Vec<String>> {
         block_in_place(|| {
             let mut stmt = self
@@ -269,12 +281,12 @@ impl Memory for SqliteMemory {
                 )
                 .with_context(|| "Could not prepare get group members statement")?;
 
-            let group_iter = stmt
+            let group_member_iter = stmt
                 .query_map(params![&chat_id, &group_name], |row| Ok(row.get(0)?))
                 .with_context(|| "Query to get group members failed")?;
 
-            let groups = group_iter.collect::<Result<_, _>>()?;
-            Ok(groups)
+            let group_members = group_member_iter.collect::<Result<_, _>>()?;
+            Ok(group_members)
         })
     }
 }
