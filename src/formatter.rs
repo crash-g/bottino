@@ -109,7 +109,7 @@ fn make_string_of_char(c: char, length: usize) -> String {
 
 pub fn format_simple_list<T: AsRef<str>>(elements: &[T]) -> String {
     if elements.is_empty() {
-        format!("Nothing to show!")
+        "Nothing to show!".to_string()
     } else {
         elements
             .iter()
@@ -150,7 +150,7 @@ mod tests {
     #[test]
     fn test_format_simple_list() {
         let elements = vec!["g1", "g2", "g3"];
-        let result = format_simple_list(elements);
+        let result = format_simple_list(&elements);
 
         assert_eq!("- g1\n- g2\n- g3\n", result);
     }
