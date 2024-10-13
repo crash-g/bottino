@@ -1,3 +1,12 @@
+# 0.2.1
+
+## Fixed
+
+- The log library now implements log rotation (max file size is 10 MB and only the last two files
+  are kept)
+- The bot spawns a background thread that logs its state every three hours (this is an attempt at
+  preventing the OS killing the bot after long periods of inactivity)
+
 # 0.2.0
 
 ## Added
