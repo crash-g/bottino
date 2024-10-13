@@ -51,8 +51,10 @@ enum Command {
     List,
     #[command(description = "shortcut for the /list command.")]
     L,
-    #[command(description = "/listall shows all the expenses; the ones that were added \
-                             before the latest call to reset have a red icon.")]
+    #[command(
+        description = "/listall shows all the expenses; the ones that were added \
+                             before the latest call to reset have a red icon."
+    )]
     ListAll,
     #[command(description = "shortcut for the /listall command.")]
     La,

@@ -11,11 +11,12 @@ For detailed instructions on how to use it, see [here](INSTRUCTIONS.md).
 Just use `cargo run`. The bot expects the `TELOXIDE_TOKEN` environment variable to be defined, with
 the bot token to use as value.
 
-The log level can be customized using the `RUST_LOG` environment variable (e.g., `export
-RUST_LOG=info`).
+Upon start the bot will create a Sqlite database named `treasurer.db` in the folder where it is
+started.
 
-Please note that upon start the bot will create a Sqlite database named `treasurer.db` in the folder
-where it is started.
+The log level is `INFO` and is hard-coded in the code (see `main.rs`). Logs are written to the `log`
+folder and files are rotated when they are larger than 10 megabytes. Only the last two files are
+kept.
 
 ## TODO list
 

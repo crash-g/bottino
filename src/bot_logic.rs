@@ -46,7 +46,8 @@ pub fn compute_exchanges(expenses: Vec<SavedExpense>) -> Vec<MoneyExchange> {
     // Sort debtors and creditors to ensure consistent results. The order is reversed cause
     // then we use `pop`, so we iterate the vectors in reverse order.
     debtors.sort_by(|x, y| reverse_ordering(x.0.partial_cmp(y.0).expect("Cannot sort debtors")));
-    creditors.sort_by(|x, y| reverse_ordering(x.0.partial_cmp(y.0).expect("Cannot sort creditors")));
+    creditors
+        .sort_by(|x, y| reverse_ordering(x.0.partial_cmp(y.0).expect("Cannot sort creditors")));
 
     if log_enabled!(Debug) {
         let sum: i64 = debts_and_credits
