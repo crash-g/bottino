@@ -13,7 +13,10 @@ use log4rs::{
 };
 use teloxide::dispatching::dialogue::InMemStorage;
 use teloxide::prelude::*;
-use tokio::sync::Mutex;
+use tokio::{
+    sync::Mutex,
+    time::{interval, Duration},
+};
 
 mod bot_commands;
 mod bot_logic;
@@ -31,6 +34,8 @@ use crate::database::sqlite::SqliteDatabase;
 #[tokio::main]
 async fn main() {
     init_log();
+
+    spawn_background_health_log();
 
     info!("Initiliazing database...");
     let database = SqliteDatabase::new("treasurer.db")
@@ -51,6 +56,22 @@ async fn main() {
         .await;
 }
 
+/// WORKAROUND: This is an attempt at preventing the OS from killing the bot
+/// after a while when it is inactive for too long.
+fn spawn_background_health_log() {
+    tokio::spawn(async {
+        // Create an interval timer that ticks every 3 hours.
+        let mut interval = interval(Duration::from_secs(3 * 60 * 60));
+
+        loop {
+            // Wait for the next tick.
+            interval.tick().await;
+            // Log bot health.
+            info!("Bot is healthy");
+        }
+    });
+}
+
 fn init_log() {
     // Create a trigger that rolls the log file when it exceeds 10 MB.
     let size_trigger = SizeTrigger::new(10 * 1024 * 1024);
@@ -64,13 +85,13 @@ fn init_log() {
     let compound_policy =
         CompoundPolicy::new(Box::new(size_trigger), Box::new(fixed_window_roller));
 
-    // Create a rolling file appender
+    // Create a rolling file appender.
     let rolling_file_appender = RollingFileAppender::builder()
         .encoder(Box::new(PatternEncoder::new("{d} - {l} - {m}{n}")))
         .build("log/treasurer.log", Box::new(compound_policy))
         .expect("[init log] Cannot create rolling file appender");
 
-    // Create the configuration
+    // Create the configuration.
     let config = Config::builder()
         .appender(Appender::builder().build("rolling_file", Box::new(rolling_file_appender)))
         .build(
